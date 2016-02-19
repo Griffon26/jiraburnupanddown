@@ -1,0 +1,15 @@
+{
+  "name": "burndown2",
+  "description": "A burndown chart for Jira that also keeps track of hours spent on a separate fixed-size budget",
+  "version": "0.1.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "../node_modules/electron-prebuilt/dist/electron ."
+  },
+  "license": "GPL-3.0+",
+  "devDependencies": {
+    "flot": "^0.8.0-alpha",
+    "jquery": "^2.1.4",
+    "moment": "^2.10.6"
+  }
+}
