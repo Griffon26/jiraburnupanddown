@@ -253,7 +253,13 @@ $(function() {
     
     if(settings.read)
     {
-      data = JSON.parse(fs.readFileSync('getIssues.json'));
+      try {
+        data = JSON.parse(fs.readFileSync('getIssues.json'));
+      } catch(e) {
+        alert('Failed to read from getIssues.json. Please get the data from:\n' +
+              '/rest/api/2/search?jql=issuetype = Sub-task and sprint = ' + sprintId + '&fields=timetracking,resolutiondate');
+        throw e;
+      }
     }
     else
     {
@@ -312,7 +318,12 @@ $(function() {
     
     if(settings.read)
     {
-      data = JSON.parse(fs.readFileSync('getEffortForIssues.json'));
+      try {
+        data = JSON.parse(fs.readFileSync('getEffortForIssues.json'));
+      } catch (e) {
+        alert('Failed to read from getEffortForIssues.json. Please get the data from:\n/rest/api/2/search?jql=issuekey in (' + issueNames.join() + ')&fields=timetracking\n');
+        throw e;
+      }
     }
     else
     {
@@ -421,10 +432,20 @@ $(function() {
   {
     var result;
     var data;
+    var jql = '(resolved >= ' + sprintStart + ' or resolution = unresolved) and ' +
+              '(created <= ' + sprintEnd + ') and (updated >= ' + sprintStart + ') and ' +
+              '(issuetype in ("Support", "Incident", "Baseline tracking & qualification")) and ' +
+              '(summary !~ "Team Activities")';
     
     if(settings.read)
     {
-      data = JSON.parse(fs.readFileSync('getIssueWorklogs.json'));
+      try {
+        data = JSON.parse(fs.readFileSync('getIssueWorklogs.json'));
+      } catch(e) {
+        alert('Failed to read from getIssueWorklogs.json. Please get the data from:\n' +
+              '/rest/api/2/search?jql=' + jql.replace(' & ', ' %26 ') + '&fields=worklog\n');
+        throw(e)
+      }
     }
     else
     {
@@ -434,10 +455,7 @@ $(function() {
         url: jiraurl + '/rest/api/2/search',
         data: { 'startAt' : 0,
                 'maxResults' : 1000,
-                'jql' : '(resolved >= ' + sprintStart + ' or resolution = unresolved) and ' +
-                        '(created <= ' + sprintEnd + ') and (updated >= ' + sprintStart + ') and ' +
-                        '(issuetype in ("Support", "Incident", "Baseline tracking & qualification")) and ' +
-                        '(summary !~ "Team Activities")',
+                'jql' : jql,
                 'fields' : 'worklog' },
         success: function(jsonData) {
           if(settings.write)
@@ -1309,12 +1327,7 @@ $(function() {
     updateChartIfPossible();
   });
 
-  try {
-    main();
-  } catch (e)
-  {
-    alert(e.message);
-  }
+  main();
 
 });
 
