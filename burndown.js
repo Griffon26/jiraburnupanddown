@@ -5,19 +5,18 @@ require('flot');
 moment = require('moment');
 require('./jquery.flot.dashes.js');
 fs = require('fs');
+ipc = require('ipc');
 
 var jiraurl = localStorage.getItem('jiraurl');
 var jiraVersion = 6;
 
-var logging = false;
-var write = false;
-var read = false;
-
 $(function() {
+
+  var settings = ipc.sendSync('get_settings');
 
   function log(s)
   {
-    if(logging)
+    if(settings.logging)
     {
       fs.appendFileSync('burndown.log', s + '\n');
     }
@@ -28,7 +27,7 @@ $(function() {
     var boards = {};
     var data;
 
-    if(read)
+    if(settings.read)
     {
       data = JSON.parse(fs.readFileSync('getScrumBoards.json'));
     }
@@ -39,7 +38,7 @@ $(function() {
         type: 'GET',
         url: jiraurl + '/rest/greenhopper/1.0/xboard/selectorData',
         success: function(jsonData) {
-          if(write)
+          if(settings.write)
           {
             fs.writeFileSync('getScrumBoards.json', JSON.stringify(jsonData, null, 8));
           }
@@ -91,7 +90,7 @@ $(function() {
     var boards = {};
     var data;
     
-    if(read)
+    if(settings.read)
     {
       data = JSON.parse(fs.readFileSync('getKanbanBoards.json'));
     }
@@ -102,7 +101,7 @@ $(function() {
         type: 'GET',
         url: jiraurl + '/rest/greenhopper/1.0/xboard/selectorData',
         success: function(jsonData) {
-          if(write)
+          if(settings.write)
           {
             fs.writeFileSync('getKanbanBoards.json', JSON.stringify(jsonData, null, 8));
           }
@@ -154,7 +153,7 @@ $(function() {
     var sprints = {};
     var data;
     
-    if(read)
+    if(settings.read)
     {
       data = JSON.parse(fs.readFileSync('getSprints.json'));
     }
@@ -167,7 +166,7 @@ $(function() {
         data: { 'startAt' : 0,
                 'maxResults' : 1000 },
         success: function(jsonData) {
-          if(write)
+          if(settings.write)
           {
             fs.writeFileSync('getSprints.json', JSON.stringify(jsonData, null, 8));
           }
@@ -191,7 +190,7 @@ $(function() {
     var dates = {}
     var data;
     
-    if(read)
+    if(settings.read)
     {
       data = JSON.parse(fs.readFileSync('getSprintDates.json'));
     }
@@ -204,7 +203,7 @@ $(function() {
         data: { 'rapidViewId' : boardId,
                 'sprintId' : sprintId },
         success: function(jsonData) {
-          if(write)
+          if(settings.write)
           {
             fs.writeFileSync('getSprintDates.json', JSON.stringify(jsonData, null, 8));
           }
@@ -252,7 +251,7 @@ $(function() {
     var issues;
     var data;
     
-    if(read)
+    if(settings.read)
     {
       data = JSON.parse(fs.readFileSync('getIssues.json'));
     }
@@ -267,7 +266,7 @@ $(function() {
                 'jql' : 'issuetype = Sub-task and sprint = ' + sprintId,
                 'fields' : 'timetracking,resolutiondate'},
         success: function(jsonData) {
-          if(write)
+          if(settings.write)
           {
             fs.writeFileSync('getIssues.json', JSON.stringify(jsonData, null, 8));
           }
@@ -311,7 +310,7 @@ $(function() {
     var effortForIssues = {}
     var data;
     
-    if(read)
+    if(settings.read)
     {
       data = JSON.parse(fs.readFileSync('getEffortForIssues.json'));
     }
@@ -326,7 +325,7 @@ $(function() {
                 'jql' : 'issuekey in (' + issueNames.join() + ')',
                 'fields' : 'timetracking'},
         success: function(jsonData) {
-          if(write)
+          if(settings.write)
           {
             fs.writeFileSync('getEffortForIssues.json', JSON.stringify(jsonData, null, 8));
           }
@@ -390,7 +389,7 @@ $(function() {
     var result;
     var data;
     
-    if(read)
+    if(settings.read)
     {
       data = JSON.parse(fs.readFileSync('getScopeChangeBurndownChart.json'));
     }
@@ -403,7 +402,7 @@ $(function() {
         data: { 'rapidViewId' : rapidViewId,
                 'sprintId' : sprintId },
         success: function(jsonData) {
-          if(write)
+          if(settings.write)
           {
             fs.writeFileSync('getScopeChangeBurndownChart.json', JSON.stringify(jsonData, null, 8));
           }
@@ -423,7 +422,7 @@ $(function() {
     var result;
     var data;
     
-    if(read)
+    if(settings.read)
     {
       data = JSON.parse(fs.readFileSync('getIssueWorklogs.json'));
     }
@@ -441,7 +440,7 @@ $(function() {
                         '(summary !~ "Team Activities")',
                 'fields' : 'worklog' },
         success: function(jsonData) {
-          if(write)
+          if(settings.write)
           {
             fs.writeFileSync('getIssueWorklogs.json', JSON.stringify(jsonData, null, 8));
           }
@@ -1310,7 +1309,12 @@ $(function() {
     updateChartIfPossible();
   });
 
-  main();
+  try {
+    main();
+  } catch (e)
+  {
+    alert(e.message);
+  }
 
 });
 

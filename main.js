@@ -41,6 +41,11 @@ app.on('ready', function() {
 var ipc = require('ipc');
 var credentials = {};
 
+
+var settings = { 'logging' : false,
+                 'write'   : false,
+                 'read'    : true }
+
 ipc.on('set_credentials', function(event, arg) {
   credentials = arg;
   event.returnValue = 'ok';
@@ -49,3 +54,9 @@ ipc.on('set_credentials', function(event, arg) {
 ipc.on('get_credentials', function(event) {
   event.returnValue = credentials;
 });
+
+ipc.on('get_settings', function(event) {
+  event.returnValue = settings;
+});
+
+
