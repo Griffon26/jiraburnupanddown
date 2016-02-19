@@ -435,7 +435,10 @@ $(function() {
         url: jiraurl + '/rest/api/2/search',
         data: { 'startAt' : 0,
                 'maxResults' : 1000,
-                'jql' : '(resolved >= ' + sprintStart + ' or resolution = unresolved) and (created <= ' + sprintEnd + ') and (updated >= ' + sprintStart + ') and (issuetype = Support)',
+                'jql' : '(resolved >= ' + sprintStart + ' or resolution = unresolved) and ' +
+                        '(created <= ' + sprintEnd + ') and (updated >= ' + sprintStart + ') and ' +
+                        '(issuetype in ("Support", "Incident", "Baseline tracking & qualification")) and ' +
+                        '(summary !~ "Team Activities")',
                 'fields' : 'worklog' },
         success: function(jsonData) {
           if(write)
@@ -463,7 +466,9 @@ $(function() {
       url: jiraurl + '/rest/agile/1.0/board/2/issue',
       data: { 'startAt' : 0,
               'maxResults' : 1000,
-              'jql' : 'worklogDate >= ' + sprintStart + ' and worklogDate <= ' + sprintEnd + ' and issuetype = Support',
+              'jql' : '(worklogDate >= ' + sprintStart + ') and (worklogDate <= ' + sprintEnd + ') and ' +
+                      '(issuetype in ("Support", "Incident", "Baseline tracking & qualification")) and ' +
+                      '(summary !~ "Team Activities")',
               'fields' : 'worklog' },
       success: function(jsonData) {
         result = jsonData.issues;
@@ -1263,6 +1268,7 @@ $(function() {
   }
 
   $('#boardSelection').change(function() {
+    updateSprintSelectionIfPossible();
     updateChartIfPossible();
   });
 
