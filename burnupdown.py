@@ -1,31 +1,41 @@
 #!/usr/bin/python
 
 import datetime as dt
+from dateutil import parser
+import json
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui
+import pytz
 import numpy as np
 
 jiraVersion = 7
 
 logging = False
 write = False
-read = False
+read = True
 
 
 def log(msg):
     print(msg)
 
-def getSprintDates():
-    '''
+
+def timestamp_to_seconds(timestamp):
+    epoch = dt.datetime.fromtimestamp(0, pytz.utc)
+    return (timestamp - epoch).total_seconds()
+
+def x_timestamps_to_seconds(x_y_data):
+    return np.array([[timestamp_to_seconds(x), y] for x, y in x_y_data])
+
+def getSprintDates(sprints, sprintId):
     if jiraVersion == 6:
         dates = jiraREST6_getSprintDates(boardId, sprintId)
         sprintStart = dates.start
         sprintEnd = dates.end
     else:
-        sprintStart = moment(new Date(sprints[sprintId].startDate))
-        sprintEnd = moment(new Date(sprints[sprintId].endDate))
-    '''
-    return dt.datetime.now(), dt.datetime.now() + dt.timedelta(days=21)
+        sprintStart = parser.parse(sprints[sprintId]['startDate'])
+        sprintEnd = parser.parse(sprints[sprintId]['endDate'])
+
+    return sprintStart, sprintEnd
 
 def jiraREST6_getScrumBoards():
     '''
@@ -94,8 +104,17 @@ def jiraREST7_getScrumBoards():
     return boards;
   }
     '''
-    pass
+    if read:
+        with open('getScrumBoards.json', 'rt') as f:
+            jsonData = json.loads(f.read())
+    else:
+        TODO # implement HTTP request
 
+    boards = {}
+    for board in jsonData['values']:
+        boards[board['id']] = board['name']
+
+    return boards
 
 def jiraREST6_getKanbanBoards():
     '''
@@ -271,7 +290,14 @@ def jiraREST7_getSprints(boardId):
     return sprints;
   }
     '''
-    pass
+    with open('getSprints.json', 'rt') as f:
+        jsonData = json.loads(f.read())
+
+    sprints = {}
+    for sprint in jsonData['values']:
+        sprints[sprint['id']] = sprint
+
+    return sprints
 
 def jiraREST6_getIssues(boardId, sprintId) :
     '''
@@ -336,7 +362,10 @@ def jiraREST7_getIssues(boardId, sprintId):
     return issues;
   }
     '''
-    return []
+    with open('getIssues.json', 'rt') as f:
+        jsonData = json.loads(f.read())
+
+    return jsonData['issues']
 
 def jiraREST6_getEffortForIssues(boardId, issueNames):
     '''
@@ -421,7 +450,17 @@ def jiraREST7_getEffortForIssues(boardId, issueNames):
     return effortForIssues;
   }
     '''
-    pass
+    with open('getEffortForIssues.json', 'rt') as f:
+        jsonData = json.loads(f.read())
+
+    effortForIssues = {}
+    for issue in jsonData['issues']:
+        if 'originalEstimateSeconds' in issue['fields']['timetracking']:
+            effortForIssues[issue['key']] = issue['fields']['timetracking']['originalEstimateSeconds']
+        else:
+            effortForIssues[issue['key']] = 0
+
+    return effortForIssues
 
 def jiraREST_getScopeChangeBurndownChart(rapidViewId, sprintId):
     '''
@@ -457,7 +496,10 @@ def jiraREST_getScopeChangeBurndownChart(rapidViewId, sprintId):
     return data;
   }
     '''
-    pass
+    with open('getScopeChangeBurndownChart.json', 'rt') as f:
+        jsonData = json.loads(f.read())
+
+    return jsonData
 
 def jiraREST6_getIssueWorklogs(boardId, sprintStart, sprintEnd):
     '''
@@ -535,7 +577,7 @@ def jiraREST7_getIssueWorklogs(boardId, sprintStart, sprintEnd):
   }
 '''
 
-def byResolutionDate(x, y):
+def byResolutionDate(x):
     '''
     var result;
 
@@ -591,24 +633,12 @@ def createSegments(input, connected):
     pass
 
 def getZeroData(sprintStart, sprintEnd):
-    '''
-  {
-    return [ [sprintStart.clone(), 0],
-             [sprintEnd.clone(), 0] ];
-  }
-    '''
-    pass
+    return [[sprintStart, 0], [sprintEnd, 0]]
 
-def createZeroLine(zeroData):
-    '''
-  {
-    return { 'color'  : 'black',
-             'dashes' : { 'show' : true,
-                          'lineWidth' : 1 },
-             'data'   : zeroData };
-  }
-    '''
-    pass
+def createZeroLine(plotItem, zeroData):
+    pen = pg.mkPen('k', width=1, style=QtCore.Qt.DashLine)
+
+    plotItem.plot(x_timestamps_to_seconds(zeroData), pen = pen)
 
 def getScopeChangingIssues(sprintStart, sprintEnd, scopeChangeBurndownChart):
     '''
@@ -751,7 +781,7 @@ def calculateScopeChanges(sprintStart, sprintEnd, scopeChangingIssues, effortFor
     '''
     return [ (0, 0) ]
 
-def createSprintScopeLine(data):
+def createSprintScopeLine(plotItem, data):
     '''
   {
     var endScope = data[data.length - 1][1];
@@ -776,7 +806,7 @@ def getIdealBurndown(sprintStart, sprintEnd, finalSprintScope):
     '''
     pass
 
-def createIdealBurndownLine(idealBurndownData):
+def createIdealBurndownLine(plotItem, idealBurndownData):
     '''
   {
     return { 'color' : '#c0c0c0',
@@ -822,7 +852,7 @@ def getActualBurndown(sprintStart, sprintEnd, finalSprintScope, issues):
     '''
     pass
 
-def createActualBurndownLine(actualBurndownData):
+def createActualBurndownLine(plotItem, actualBurndownData):
     '''
   {
     return { 'color' : 'blue',
@@ -878,7 +908,7 @@ def adjustForHiddenWeekends(points, weekends):
             */
   }
     '''
-    pass
+    return points
 
 def determineSprintWeekends(sprintStart, sprintEnd):
     '''
@@ -947,7 +977,7 @@ def createDayLines(sprintStart, sprintEnd):
     '''
     pass
 
-def createGridLineMarkings(gridData):
+def createGridLineMarkings(plotItem, gridData):
     '''
   {
     var markings = [];
@@ -1010,7 +1040,7 @@ def calculateActualBurnup(sprintStart, sprintEnd, issueWorklogs, burnupBudget, p
     '''
     pass
 
-def createActualBurnupLine(actualBurnupData):
+def createActualBurnupLine(plotItem, actualBurnupData):
     '''
   {
     return { 'color' : 'red',
@@ -1040,7 +1070,7 @@ def calculateProjectedBurnup(zeroData, actualBurnupData):
     '''
     return [ (0, 0), (0, 0) ]
 
-def createProjectedBurnupLine(projectedBurnupData):
+def createProjectedBurnupLine(plotItem, projectedBurnupData):
     '''
   {
     return { color: 'red',
@@ -1058,7 +1088,7 @@ def calculateIdealBurnup(sprintStart, sprintEnd, burnupBudget):
     '''
     pass
 
-def createIdealBurnupLine(idealBurnupData):
+def createIdealBurnupLine(plotItem, idealBurnupData):
     '''
   {
     return { color: '#c0c0c0',
@@ -1082,7 +1112,7 @@ def calculateExpectedBurndown(sprintStart, sprintEnd, finalSprintScope, projecte
     '''
     pass
 
-def createExpectedBurndownLine(expectedBurndownData):
+def createExpectedBurndownLine(plotItem, expectedBurndownData):
     '''
   {
     return { color: 'green',
@@ -1091,7 +1121,7 @@ def createExpectedBurndownLine(expectedBurndownData):
     '''
     pass
 
-def annotateBudgetOverrun(plot, max_x, projectedBurnupHeight):
+def annotateBudgetOverrun(plotItem, max_x, projectedBurnupHeight):
     '''
   {
     var placeholder = $("#placeholder");
@@ -1130,11 +1160,11 @@ def annotateBudgetOverrun(plot, max_x, projectedBurnupHeight):
     '''
     pass
 
-def updateChart(boardId, supportBoardId, sprintId, burnupBudget, availability):
+def updateChart(plotItem, sprints, boardId, supportBoardId, sprintId, burnupBudget, availability):
     #
     # Gather all data
     #
-    sprintStart, sprintEnd = getSprintDates()
+    sprintStart, sprintEnd = getSprintDates(sprints, sprintId)
 
     log("Sprint start is %s" % sprintStart)
     log("Sprint end   is %s" % sprintEnd)
@@ -1194,20 +1224,6 @@ def updateChart(boardId, supportBoardId, sprintId, burnupBudget, availability):
     expectedBurndownData = calculateExpectedBurndown(sprintStart, sprintEnd, finalSprintScope, projectedBurnupHeight)
     adjustForHiddenWeekends(expectedBurndownData, weekends)
 
-    # 
-    # Turn it into plottable data
-    #
-    zero = createZeroLine(zeroData)
-    scope = createSprintScopeLine(sprintScopeData)
-    idealBurndown = createIdealBurndownLine(idealBurndownData)
-    actualBurndown = createActualBurndownLine(actualBurndownData)
-    gridLines = createGridLineMarkings(gridData)
-    actualBurnup = createActualBurnupLine(actualBurnupData)
-    projectedBurnup = createProjectedBurnupLine(projectedBurnupData)
-    idealBurnup = createIdealBurnupLine(idealBurnupData)
-    expectedBurndown = createExpectedBurndownLine(expectedBurndownData)
-
-
 
     # 
     # Plot
@@ -1215,32 +1231,23 @@ def updateChart(boardId, supportBoardId, sprintId, burnupBudget, availability):
 
     now = dt.datetime.now()
 
-    '''
-    options = {
-      grid : { borderWidth : 0,
-               margin: { 'top' : 0,
-                         'left' : 0,
-                         'right' : 60,
-                         'bottom' : 0 },
-               markings: gridLines },
-      xaxis : { ticks : axisData,
-                tickLength : 0 },
-      yaxis : { min : -burnupBudget * pointsPerHour, max: finalSprintScope },
-      series : {
-        shadowSize: 0,
-        }
-    }
-    plot = $.plot("#placeholder", [ idealBurnup,
-                                        idealBurndown,
-                                        zero,
-                                        scope,
-                                        actualBurndown,
-                                        actualBurnup,
-                                        projectedBurnup,
-                                        expectedBurndown ], options)
+    plotItem.getAxis('bottom').setTicks([axisData, [1]])
+    plotItem.setYRange(-burnupBudget * pointsPerHour, finalSprintScope)
 
-    annotateBudgetOverrun(plot, zeroData[zeroData.length - 1][0], projectedBurnupHeight)
-    '''
+    createZeroLine(plotItem, zeroData)
+    createSprintScopeLine(plotItem, sprintScopeData)
+    createIdealBurndownLine(plotItem, idealBurndownData)
+    createActualBurndownLine(plotItem, actualBurndownData)
+    createGridLineMarkings(plotItem, gridData)
+    createActualBurnupLine(plotItem, actualBurnupData)
+    createProjectedBurnupLine(plotItem, projectedBurnupData)
+    createIdealBurnupLine(plotItem, idealBurnupData)
+    createExpectedBurndownLine(plotItem, expectedBurndownData)
+
+    annotateBudgetOverrun(plotItem, zeroData[-1][0], projectedBurnupHeight)
+
+def initializePlot(plotItem):
+    plotItem.showGrid(True, True, 0.3)
 
 if __name__ == '__main__':
     app = QtGui.QApplication([])
@@ -1248,10 +1255,6 @@ if __name__ == '__main__':
     pg.setConfigOption('background', 'w')
     pg.setConfigOption('foreground', 'k')
     pg.setConfigOption('antialias', True)
-
-    redpen = pg.mkPen('r', width=2)
-    greenpen = pg.mkPen('g', width=2)
-    bluepen = pg.mkPen('b', width=2)
 
     mw = QtGui.QMainWindow()
     cw = QtGui.QWidget()
@@ -1263,13 +1266,21 @@ if __name__ == '__main__':
     l.addWidget(pw)
 
 
-    p1 = pw.getPlotItem()
-    #p1.plot(np.random.normal(size=100), pen=redpen, name="red curve")
-    p1.plot([1,2,3,4,5,6,7,8], pen=redpen, name="red curve")
+    pi = pw.getPlotItem()
 
     mw.show()
 
-    updateChart(1, 2, 3, 100, 500)
+    initializePlot(pi)
+
+    boards = jiraREST6_getScrumBoards() if (jiraVersion == 6) else \
+             jiraREST7_getScrumBoards()
+    print('All available board IDs are: %s' % boards)
+    boardId = 8
+    sprints = jiraREST6_getSprints(boardId) if (jiraVersion == 6) else \
+              jiraREST7_getSprints(boardId)
+    sprintId = 533
+    print('All available sprints for board %s are: %s' % (boardId, sprints))
+    updateChart(pi, sprints, boardId, None, sprintId, 100, 500)
 
     import sys
     if (sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION'):
