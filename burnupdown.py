@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import copy
 import datetime as dt
 from dateutil import parser
 import json
@@ -7,8 +8,9 @@ import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui
 import pytz
 import numpy as np
+import tzlocal
 
-jiraVersion = 7
+jiraVersion = 6
 
 logging = False
 write = False
@@ -21,16 +23,20 @@ def log(msg):
 
 def timestamp_to_seconds(timestamp):
     epoch = dt.datetime.fromtimestamp(0, pytz.utc)
+    print(timestamp, epoch)
     return (timestamp - epoch).total_seconds()
 
 def x_timestamps_to_seconds(x_y_data):
+    return [[timestamp_to_seconds(x), y] for x, y in x_y_data]
+
+def x_timestamps_to_seconds_np(x_y_data):
     return np.array([[timestamp_to_seconds(x), y] for x, y in x_y_data])
 
 def getSprintDates(sprints, sprintId):
     if jiraVersion == 6:
         dates = jiraREST6_getSprintDates(boardId, sprintId)
-        sprintStart = dates.start
-        sprintEnd = dates.end
+        sprintStart = dates['start']
+        sprintEnd = dates['end']
     else:
         sprintStart = parser.parse(sprints[sprintId]['startDate'])
         sprintEnd = parser.parse(sprints[sprintId]['endDate'])
@@ -76,7 +82,18 @@ def jiraREST6_getScrumBoards():
     return boards;
   }
   '''
-    pass
+    if read:
+        with open('jira6/getScrumBoards.json', 'rt') as f:
+            jsonData = json.loads(f.read())
+    else:
+        TODO # implement HTTP request
+
+    boards = {}
+    for board in jsonData['rapidViews']:
+        if board['sprintSupportEnabled']:
+            boards[board['id']] = board['name']
+
+    return boards
 
 def jiraREST7_getScrumBoards():
     '''
@@ -223,7 +240,14 @@ def jiraREST6_getSprints(boardId):
     return sprints;
   }
     '''
-    pass
+    with open('jira6/getSprints.json', 'rt') as f:
+        jsonData = json.loads(f.read())
+
+    sprints = {}
+    for sprint in jsonData['sprints']:
+        sprints[sprint['id']] = sprint
+
+    return sprints
 
 def jiraREST6_getSprintDates(boardId, sprintId):
     '''
@@ -263,7 +287,20 @@ def jiraREST6_getSprintDates(boardId, sprintId):
     return dates;
   }
     '''
-    pass
+    with open('jira6/getSprintDates.json', 'rt') as f:
+        jsonData = json.loads(f.read())
+
+    endDate = jsonData['sprint']['completeDate']
+    if endDate == 'None':
+        endDate = jsonData['sprint']['endDate']
+
+    localzone = tzlocal.get_localzone()
+    
+    dates = {}
+    dates['start'] = localzone.localize(parser.parse(jsonData['sprint']['startDate']))
+    dates['end'] = localzone.localize(parser.parse(endDate))
+
+    return dates
 
 def jiraREST7_getSprints(boardId):
     '''
@@ -336,7 +373,10 @@ def jiraREST6_getIssues(boardId, sprintId) :
     return issues;
   }
     '''
-    pass
+    with open('jira6/getIssues.json', 'rt') as f:
+        jsonData = json.loads(f.read())
+
+    return jsonData['issues']
 
 def jiraREST7_getIssues(boardId, sprintId):
     '''
@@ -414,7 +454,17 @@ def jiraREST6_getEffortForIssues(boardId, issueNames):
     return effortForIssues;
   }
     '''
-    pass
+    with open('jira6/getEffortForIssues.json', 'rt') as f:
+        jsonData = json.loads(f.read())
+
+    effortForIssues = {}
+    for issue in jsonData['issues']:
+        if 'originalEstimateSeconds' in issue['fields']['timetracking']:
+            effortForIssues[issue['key']] = issue['fields']['timetracking']['originalEstimateSeconds']
+        else:
+            effortForIssues[issue['key']] = 0
+
+    return effortForIssues
 
 def jiraREST7_getEffortForIssues(boardId, issueNames):
     '''
@@ -496,7 +546,7 @@ def jiraREST_getScopeChangeBurndownChart(rapidViewId, sprintId):
     return data;
   }
     '''
-    with open('getScopeChangeBurndownChart.json', 'rt') as f:
+    with open('jira6/getScopeChangeBurndownChart.json', 'rt') as f:
         jsonData = json.loads(f.read())
 
     return jsonData
@@ -537,7 +587,10 @@ def jiraREST6_getIssueWorklogs(boardId, sprintStart, sprintEnd):
     return data.issues;
   }
     '''
-    pass
+    with open('jira6/getIssueWorklogs.json', 'rt') as f:
+        jsonData = json.loads(f.read())
+
+    return jsonData['issues']
 
 def jiraREST7_getIssueWorklogs(boardId, sprintStart, sprintEnd):
     '''
@@ -638,7 +691,7 @@ def getZeroData(sprintStart, sprintEnd):
 def createZeroLine(plotItem, zeroData):
     pen = pg.mkPen('k', width=1, style=QtCore.Qt.DashLine)
 
-    plotItem.plot(x_timestamps_to_seconds(zeroData), pen = pen)
+    plotItem.plot(x_timestamps_to_seconds_np(zeroData), pen = pen)
 
 def getScopeChangingIssues(sprintStart, sprintEnd, scopeChangeBurndownChart):
     '''
@@ -953,7 +1006,18 @@ def createDayLabels(sprintStart, sprintEnd):
     return labels;
   }
     '''
-    pass
+    labels = []
+    day = sprintStart.replace(hour=12, minute=0, second = 0, microsecond = 0)
+    if day < sprintStart:
+        day += dt.timedelta(days = 1)
+
+    while day < sprintEnd:
+        if day.weekday() not in [5, 6]:
+            labels.append([copy.deepcopy(day), day.strftime('%a')])
+
+        day += dt.timedelta(days = 1)
+
+    return labels
 
 def createDayLines(sprintStart, sprintEnd):
     '''
@@ -1231,7 +1295,7 @@ def updateChart(plotItem, sprints, boardId, supportBoardId, sprintId, burnupBudg
 
     now = dt.datetime.now()
 
-    plotItem.getAxis('bottom').setTicks([axisData, [1]])
+    plotItem.getAxis('bottom').setTicks([x_timestamps_to_seconds(axisData)])
     plotItem.setYRange(-burnupBudget * pointsPerHour, finalSprintScope)
 
     createZeroLine(plotItem, zeroData)
