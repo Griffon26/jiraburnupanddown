@@ -658,33 +658,18 @@ def byResolutionDate(x):
     '''
     return 0
 
-def createSegments(input, connected):
-    '''
-  {
-    var dataSet = [ input[0] ];
-    var previousY = input[0][1];
+def createSegments(inputdata, connected):
+    dataSet = [ inputdata[0] ]
+    previousY = inputdata[0][1]
 
-    $.each(input, function(index, value)
-    {
-      /* Skip the first element */
-      if(index == 0)
-      {
-        return true;
-      }
+    for value in inputdata[1:]:
+        dataSet.append([value[0], previousY])
+        if not connected:
+            dataSet.append(None)
+        dataSet.append(value)
+        previousY = value[1]
 
-      dataSet.push([value[0], previousY]);
-      if(!connected)
-      {
-        dataSet.push(null);
-      }
-      dataSet.push(value);
-      previousY = value[1];
-    });
-
-    return dataSet;
-  }
-    '''
-    pass
+    return dataSet
 
 def getZeroData(sprintStart, sprintEnd):
     return [[sprintStart, 0], [sprintEnd, 0]]
@@ -825,21 +810,12 @@ def calculateScopeChanges(sprintStart, sprintEnd, scopeChangingIssues, effortFor
     return scopeChanges
 
 def createSprintScopeLine(plotItem, data):
-    '''
-  {
-    var endScope = data[data.length - 1][1];
-    var lineData = []
+    endScope = data[-1][1];
+    lineData = [[value[0], endScope - value[1]] for value in data]
 
-    $.each(data, function(index, value)
-    {
-      lineData.push([value[0], endScope - value[1]]);
-    });
+    pen = pg.mkPen('k', width=1)
 
-    return { 'color' : 'black',
-             'data'  : createSegments(lineData, true) };
-  }
-    '''
-    pass
+    plotItem.plot(x_timestamps_to_seconds_np(createSegments(lineData, True)), pen = pen)
 
 def getIdealBurndown(sprintStart, sprintEnd, finalSprintScope):
     return [ [copy.deepcopy(sprintStart), finalSprintScope], [copy.deepcopy(sprintEnd), 0] ]
