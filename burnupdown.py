@@ -1085,6 +1085,7 @@ def updateChart(plotItem, sprints, boardId, supportBoardId, sprintId, burnupBudg
 
     plotItem.getAxis('bottom').setTicks([x_timestamps_to_seconds(axisData)])
     plotItem.setYRange(-burnupBudget * pointsPerHour, finalSprintScope)
+    #plotItem.getViewBox().setRange(xRange = (timestamp_to_seconds(sprintStart), timestamp_to_seconds(sprintEnd)))
 
     createZeroLine(plotItem, zeroData)
     createSprintScopeLine(plotItem, sprintScopeData)
@@ -1099,7 +1100,10 @@ def updateChart(plotItem, sprints, boardId, supportBoardId, sprintId, burnupBudg
     annotateBudgetOverrun(plotItem, zeroData[-1][0], projectedBurnupHeight)
 
 def initializePlot(plotItem):
-    plotItem.showGrid(True, True, 0.3)
+    #plotItem.showGrid(True, True, 0.3)
+    plotItem.hideButtons()
+    plotItem.setMenuEnabled(enableMenu = False)
+    plotItem.getViewBox().setMouseEnabled(x = False, y = False)
 
 if __name__ == '__main__':
     app = QtGui.QApplication([])
