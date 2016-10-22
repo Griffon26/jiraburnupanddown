@@ -20,10 +20,13 @@ read = True
 def log(msg):
     print(msg)
 
+def get_current_localtime():
+    localzone = tzlocal.get_localzone()
+    currentTime = dt.datetime.utcnow().replace(tzinfo=pytz.utc).astimezone(localzone)
+    return currentTime
 
 def timestamp_to_seconds(timestamp):
     epoch = dt.datetime.fromtimestamp(0, pytz.utc)
-    print(timestamp, epoch)
     return (timestamp - epoch).total_seconds()
 
 def x_timestamps_to_seconds(x_y_data):
@@ -624,11 +627,9 @@ def jiraREST7_getIssueWorklogs(boardId, sprintStart, sprintEnd):
     alert(JSON.stringify(object, null, 8));
   }
 
-  function byTimestamp(x, y)
-  {
-    return x[0].diff(y[0]);
-  }
 '''
+def byTimestamp(x):
+    return timestamp_to_seconds(x[0])
 
 def byResolutionDate(x):
     '''
@@ -798,41 +799,30 @@ def getInitialScope(initialIssues, effortForIssues):
     return 0
 
 def calculateScopeChanges(sprintStart, sprintEnd, scopeChangingIssues, effortForIssues):
-    '''
-  {
-    var scope = 0;
-    var scopeChanges = [];
+    scope = 0
+    scopeChanges = []
 
     log('Calculating sprint scope changes');
 
-    scopeChanges.push( [ sprintStart.clone(), 0 ] );
+    scopeChanges.append( [ copy.deepcopy(sprintStart), 0 ] );
 
-    $.each(scopeChangingIssues, function(index, scopeChange)
-    {
-      var effort = effortForIssues[scopeChange.issueName] / 3600;
+    for scopeChange in scopeChangingIssues:
+        effort = effortForIssues[scopeChange.issueName] / 3600
 
-      if(scopeChange.added)
-      {
-        scope += effort;
-        log('  added ' + scopeChange.issueName + ': ' + effort + ' hours');
-      }
-      else
-      {
-        scope -= effort;
-        log('  removed ' + scopeChange.issueName + ': ' + effort + ' hours');
-      }
+        if scopeChange.added:
+            scope += effort
+            log('  added %s: %d hours' % (scopeChange.issueName, effort))
+        else:
+            scope -= effort
+            log('  removed %s: %d hours' % (scopeChange.issueName, effort))
 
-      scopeChanges.push( [ scopeChange.timestamp.clone(), scope ] );
-    });
+        scopeChanges.push( [ copy.deepcopy(scopeChange.timestamp), scope ] )
 
-    log('  Overall scope change: ' + scope + ' hours');
+    log('  Overall scope change: %d hours' % scope)
 
-    scopeChanges.push( [ sprintEnd.clone(), scope ] );
+    scopeChanges.append( [ copy.deepcopy(sprintEnd), scope ] )
 
-    return scopeChanges;
-  }
-    '''
-    return [ (0, 0) ]
+    return scopeChanges
 
 def createSprintScopeLine(plotItem, data):
     '''
@@ -852,12 +842,7 @@ def createSprintScopeLine(plotItem, data):
     pass
 
 def getIdealBurndown(sprintStart, sprintEnd, finalSprintScope):
-    '''
-  {
-    return [ [sprintStart.clone(), finalSprintScope], [sprintEnd.clone(), 0] ];
-  }
-    '''
-    pass
+    return [ [copy.deepcopy(sprintStart), finalSprintScope], [copy.deepcopy(sprintEnd), 0] ]
 
 def createIdealBurndownLine(plotItem, idealBurndownData):
     '''
@@ -869,41 +854,27 @@ def createIdealBurndownLine(plotItem, idealBurndownData):
     pass
 
 def getActualBurndown(sprintStart, sprintEnd, finalSprintScope, issues):
-    '''
-  {
-    var remainingSprintEffort = finalSprintScope;
-    var actual = [ [sprintStart, remainingSprintEffort] ]
+    remainingSprintEffort = finalSprintScope
+    actual = [ [sprintStart, remainingSprintEffort] ]
 
-    $.each(issues, function(index, value)
-    {
-      if(value.fields.resolutiondate)
-      {
-        var resolutionDate = moment(value.fields.resolutiondate);
-        if(resolutionDate >= sprintStart &&
-           resolutionDate <= sprintEnd)
-        {
-          if(value.fields.timetracking.originalEstimateSeconds)
-          {
-            remainingSprintEffort -= value.fields.timetracking.originalEstimateSeconds / 3600;
-            actual.push([resolutionDate, remainingSprintEffort]);
-          }
-        }
-      }
-      else
-      {
-        return false;
-      }
-    });
+    for value in issues:
+        if not value['fields']['resolutiondate']:
+            continue
+        else:
+            resolutionDate = parser.parse(value['fields']['resolutiondate'])
+            if resolutionDate >= sprintStart and \
+               resolutionDate <= sprintEnd:
+                if value['fields']['timetracking']['originalEstimateSeconds']:
+                    remainingSprintEffort -= value['fields']['timetracking']['originalEstimateSeconds'] / 3600
+                    actual.append([resolutionDate, remainingSprintEffort])
 
-    var currentDate = moment();
-    var lastDate = (currentDate < sprintEnd) ? currentDate : sprintEnd;
+    currentDate = get_current_localtime()
 
-    actual.push([lastDate.clone(), remainingSprintEffort]);
+    lastDate = currentDate if currentDate < sprintEnd else sprintEnd
 
-    return actual;
-  }
-    '''
-    pass
+    actual.append([copy.deepcopy(lastDate), remainingSprintEffort])
+
+    return actual
 
 def createActualBurndownLine(plotItem, actualBurndownData):
     '''
@@ -915,76 +886,59 @@ def createActualBurndownLine(plotItem, actualBurndownData):
     pass
 
 def adjustForHiddenWeekends(points, weekends):
+    upcomingWeekends = weekends[:]
+    pointIndex = 0;
+
+    accumulatedOffset = dt.timedelta(0)
+
+    while pointIndex < len(points):
+        nextPoint = points[pointIndex]
+
+        '''
+        popup({ 'nextPoint' : nextPoint,
+                  'nextWeekend' : nextWeekend,
+                  'points' : points,
+                  'weekends' : weekends,
+                  'accum' : accumulatedOffset.humanize() });
+        '''
+        if upcomingWeekends:
+            nextWeekend = upcomingWeekends[0]
+        else:
+            nextWeekend = None
+
+        if nextWeekend and nextPoint[0] > nextWeekend['start']:
+            if nextPoint[0] > nextWeekend['start'] + nextWeekend['duration']:
+                accumulatedOffset += nextWeekend['duration']
+                upcomingWeekends.pop(0)
+            else:
+                nextPoint[0] = nextWeekend['start'] - accumulatedOffset
+                pointIndex += 1
+        else:
+            nextPoint[0] -= accumulatedOffset
+            pointIndex += 1
     '''
-  {
-    var weekendIndex = 0;
-    var pointIndex = 0;
-
-    var accumulatedOffset = moment.duration(0);
-
-    while(pointIndex < points.length)
-    {
-      var nextWeekend = weekends[weekendIndex];
-      var nextPoint = points[pointIndex];
-
-      /*
-      popup({ 'nextPoint' : nextPoint,
-              'nextWeekend' : nextWeekend,
-              'points' : points,
-              'weekends' : weekends,
-              'accum' : accumulatedOffset.humanize() });
-              */
-
-      if(nextWeekend != undefined && nextPoint[0] > nextWeekend.start)
-      {
-        if(nextPoint[0] > nextWeekend.start.clone().add(nextWeekend.duration))
-        {
-          accumulatedOffset.add(nextWeekend.duration);
-          weekendIndex++;
-        }
-        else
-        {
-          nextPoint[0] = nextWeekend.start.clone().subtract(accumulatedOffset);
-          pointIndex++;
-        }
-      }
-      else
-      {
-        nextPoint[0].subtract(accumulatedOffset);
-        pointIndex++;
-      }
-    }
-    /*
     popup({ 'points' : points,
             'weekends' : weekends,
             'accum' : accumulatedOffset.humanize() });
-            */
-  }
-    '''
+            '''
     return points
 
 def determineSprintWeekends(sprintStart, sprintEnd):
-    '''
-  {
-    var endOfWeek = sprintStart.clone().endOf('isoweek');
-    var startOfWeekend = endOfWeek.clone().subtract(2, 'days');
-    var weekends = [];
+    endOfWeek = sprintStart.replace(hour = 0, minute = 0, second = 0, microsecond = 0) + \
+                dt.timedelta(days = 7 - sprintStart.weekday())
+    startOfWeekend = endOfWeek - dt.timedelta(days = 2)
+    weekends = []
 
-    while(startOfWeekend < sprintEnd)
-    {
-      var startOfNonWork = moment.max(sprintStart, startOfWeekend);
-      var endOfNonWork = moment.min(sprintEnd, endOfWeek);
+    while startOfWeekend < sprintEnd:
+        startOfNonWork = max(sprintStart, startOfWeekend)
+        endOfNonWork = min(sprintEnd, endOfWeek)
 
-      weekends.push( { 'start' : startOfNonWork,
-                       'duration' : moment.duration(endOfNonWork.diff(startOfNonWork)) } );
+        weekends.append( { 'start' : startOfNonWork,
+                           'duration' : endOfNonWork - startOfNonWork } )
 
-      endOfWeek.add(1, 'weeks');
-      startOfWeekend = endOfWeek.clone().subtract(2, 'days');
-    }
-    return weekends;
-  }
-    '''
-    pass
+        endOfWeek += dt.timedelta(weeks = 1)
+        startOfWeekend = endOfWeek - dt.timedelta(days = 2)
+    return weekends
 
 def createDayLabels(sprintStart, sprintEnd):
     '''
@@ -1020,26 +974,18 @@ def createDayLabels(sprintStart, sprintEnd):
     return labels
 
 def createDayLines(sprintStart, sprintEnd):
-    '''
-  {
-    var lines = [];
-    var day = sprintStart.clone().hours(0).minutes(0).seconds(0).milliseconds(0);
-    if(day < sprintStart)
-    {
-      day.add(1, 'day');
-    }
-    while(day < sprintEnd)
-    {
-      if([6,7].indexOf(day.isoWeekday()) == -1)
-      {
-        lines.push([day.clone(), undefined]);
-      }
-      day.add(1, 'day');
-    }
-    return lines;
-  }
-    '''
-    pass
+    lines = []
+    day = sprintStart.replace(hour = 0, minute = 0, second = 0, microsecond = 0)
+    if day < sprintStart:
+        day += dt.timedelta(days = 1)
+
+    while day < sprintEnd:
+        if day.weekday() not in [5, 6]:
+            lines.append([copy.deepcopy(day), None])
+
+        day += dt.timedelta(days = 1)
+
+    return lines
 
 def createGridLineMarkings(plotItem, gridData):
     '''
@@ -1056,53 +1002,38 @@ def createGridLineMarkings(plotItem, gridData):
     pass
 
 def calculateActualBurnup(sprintStart, sprintEnd, issueWorklogs, burnupBudget, pointsPerHour):
-    '''
-  {
-    var totalHoursIn = 0;
-    var totalHoursOut = 0;
-    var timeSpent = []
+    totalHoursIn = 0
+    totalHoursOut = 0
+    timeSpent = []
 
-    log('Calculating support burnup');
+    log('Calculating support burnup')
 
-    $.each(issueWorklogs, function(i, issue)
-    {
-      $.each(issue.fields.worklog.worklogs, function(j, worklog)
-      {
-        var created = moment(worklog.created);
-        if(created >= sprintStart && created <= sprintEnd)
-        {
-          timeSpent.push([created, worklog.timeSpentSeconds]);
-          totalHoursIn += worklog.timeSpentSeconds / 3600;
-          log('  adding ' + issue.key + ': ' + (worklog.timeSpentSeconds / 3600) + ' hours');
-        }
-        else
-        {
-          totalHoursOut += worklog.timeSpentSeconds / 3600;
-          log('  skipping ' + issue.key + ': ' + (worklog.timeSpentSeconds / 3600) + ' hours');
-        }
-      });
-    });
+    for issue in issueWorklogs:
+        for worklog in issue['fields']['worklog']['worklogs']:
+            created = parser.parse(worklog['created'])
+            if created >= sprintStart and created <= sprintEnd:
+                timeSpent.append([created, worklog['timeSpentSeconds']])
+                totalHoursIn += worklog['timeSpentSeconds'] / 3600
+                log('  adding %s: %d hours' % (issue['key'], worklog['timeSpentSeconds'] / 3600))
+            else:
+                totalHoursOut += worklog['timeSpentSeconds'] / 3600;
+                log('  skipping %s: %d hours' % (issue['key'], worklog['timeSpentSeconds'] / 3600))
 
-    log('  Added a total of ' + totalHoursIn + ' hours from worklogs');
-    log('  Skipped a total of ' + totalHoursOut + ' hours from worklogs');
+    log('  Added a total of %d hours from worklogs' % totalHoursIn)
+    log('  Skipped a total of %d hours from worklogs' % totalHoursOut)
 
-    timeSpent.sort(byTimestamp);
+    timeSpent.sort(key=byTimestamp)
 
-    var totalTimeSpent = 0;
-    var burnup = [ [sprintStart, -burnupBudget * pointsPerHour] ];
-    $.each(timeSpent, function(i, timeSpent)
-    {
-      totalTimeSpent += timeSpent[1];
-      burnup.push([timeSpent[0], ((totalTimeSpent / 3600) - burnupBudget) * pointsPerHour]);
-    });
-    var currentDate = moment();
-    var lastDate = (currentDate < sprintEnd) ? currentDate : sprintEnd;
-    burnup.push([lastDate.clone(), ((totalTimeSpent / 3600) - burnupBudget) * pointsPerHour]);
+    totalTimeSpent = 0
+    burnup = [ [sprintStart, -burnupBudget * pointsPerHour] ]
+    for ts in timeSpent:
+        totalTimeSpent += ts[1]
+        burnup.append([ts[0], ((totalTimeSpent / 3600) - burnupBudget) * pointsPerHour])
+    currentDate = get_current_localtime()
+    lastDate = currentDate if currentDate < sprintEnd else sprintEnd
+    burnup.append([copy.deepcopy(lastDate), ((totalTimeSpent / 3600) - burnupBudget) * pointsPerHour]);
 
-    return burnup;
-  }
-    '''
-    pass
+    return burnup
 
 def createActualBurnupLine(plotItem, actualBurnupData):
     '''
@@ -1145,12 +1076,7 @@ def createProjectedBurnupLine(plotItem, projectedBurnupData):
     pass
 
 def calculateIdealBurnup(sprintStart, sprintEnd, burnupBudget):
-    '''
-  {
-    return [ [sprintStart.clone(), -burnupBudget], [sprintEnd.clone(), 0] ];
-  }
-    '''
-    pass
+    return [ [copy.deepcopy(sprintStart), -burnupBudget], [copy.deepcopy(sprintEnd), 0] ]
 
 def createIdealBurnupLine(plotItem, idealBurnupData):
     '''
@@ -1162,19 +1088,10 @@ def createIdealBurnupLine(plotItem, idealBurnupData):
     pass
 
 def calculateExpectedBurndown(sprintStart, sprintEnd, finalSprintScope, projectedBurnupHeight):
-    '''
-  {
-    if(projectedBurnupHeight < 0)
-    {
-      return [ [sprintStart.clone(), finalSprintScope], [sprintEnd.clone(), projectedBurnupHeight] ];
-    }
-    else
-    {
-      return [];
-    }
-  }
-    '''
-    pass
+    if projectedBurnupHeight < 0:
+        return [ [copy.deepcopy(sprintStart), finalSprintScope], [copy.deepcopy(sprintEnd), projectedBurnupHeight] ]
+    else:
+        return []
 
 def createExpectedBurndownLine(plotItem, expectedBurndownData):
     '''
@@ -1292,8 +1209,6 @@ def updateChart(plotItem, sprints, boardId, supportBoardId, sprintId, burnupBudg
     # 
     # Plot
     #
-
-    now = dt.datetime.now()
 
     plotItem.getAxis('bottom').setTicks([x_timestamps_to_seconds(axisData)])
     plotItem.setYRange(-burnupBudget * pointsPerHour, finalSprintScope)
