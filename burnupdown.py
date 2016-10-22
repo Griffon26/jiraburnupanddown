@@ -632,31 +632,17 @@ def byTimestamp(x):
     return timestamp_to_seconds(x[0])
 
 def byResolutionDate(x):
+    if x['fields']['resolutiondate']:
+        result = timestamp_to_seconds(parser.parse(x['fields']['resolutiondate']))
+    else:
+        result = 0
+
     '''
-    var result;
-
-    if(!x.fields.resolutiondate)
-    {
-      result = 1;
-    }
-    else if(!y.fields.resolutiondate)
-    {
-      result = -1;
-    }
-    else
-    {
-      result = moment(x.fields.resolutiondate).diff(moment(y.fields.resolutiondate));
-    }
-
-    /*
     popup('(' + x.id + ',' + x.fields.resolutiondate + ') ' + ((result < 0) ? '<' :
                                                                (result > 0) ? '>' :
                                                                              '==') + ' (' + y.id + ',' + y.fields.resolutiondate + ')');
-    */
-    return result;
-  }
     '''
-    return 0
+    return result
 
 def createSegments(inputdata, connected):
     dataSet = [ inputdata[0] ]
@@ -680,108 +666,75 @@ def createZeroLine(plotItem, zeroData):
     plotItem.plot(x_timestamps_to_seconds_np(zeroData), pen = pen)
 
 def getScopeChangingIssues(sprintStart, sprintEnd, scopeChangeBurndownChart):
-    '''
-  {
-    var timezoneOffset = moment.duration(sprintStart.diff(moment(scopeChangeBurndownChart.startTime)));
-    var initialScope = [];
-    var scopeChanges = [];
+    localzone = tzlocal.get_localzone()
+    timezoneOffset = sprintStart - dt.datetime.fromtimestamp(int(scopeChangeBurndownChart['startTime']) / 1000, tz=pytz.utc)
 
-    var tmpSet = {};
-    var issueNames = [];
-    var alreadyDone = {};
+    initialScope = []
+    scopeChanges = []
 
-    $.each(scopeChangeBurndownChart.changes, function(timestamp, changelist)
-    {
-      timestamp = moment(parseInt(timestamp));
-      timestamp.add(timezoneOffset);
+    tmpSet = set()
+    issueNames = []
+    alreadyDone = set()
 
-      $.each(changelist, function(index, change)
-      {
-        if(change.column != undefined &&
-           change.column.done &&
-           timestamp <= sprintStart)
-        {
-          alreadyDone[change.key] = true;
-        }
-      });
-    });
+    for timestamp, changelist in scopeChangeBurndownChart['changes'].items():
+        timestamp = dt.datetime.fromtimestamp(int(timestamp) / 1000, tz=localzone) + timezoneOffset
 
-    $.each(scopeChangeBurndownChart.changes, function(timestamp, changelist)
-    {
-      timestamp = moment(parseInt(timestamp));
-      timestamp.add(timezoneOffset);
+        for change in changelist:
+            if ('column' in change and
+                'done' in change['column'] and
+                timestamp <= sprintStart):
+                alreadyDone.add(change['key'])
 
-      $.each(changelist, function(index, change)
-      {
-        /* Skip parent issues */
-        if(!scopeChangeBurndownChart.issueToParentKeys[change.key])
-        {
-          return true;
-        }
+    for timestamp, changelist in scopeChangeBurndownChart['changes'].items():
+        timestamp = dt.datetime.fromtimestamp(int(timestamp) / 1000, tz=localzone) + timezoneOffset
 
-        /* Skip changes that are not sprint scope changes */
-        if(change.added == undefined)
-        {
-          return true;
-        }
+        for change in changelist:
+            # Skip parent issues
+            if not scopeChangeBurndownChart['issueToParentKeys'][change['key']]:
+                continue
 
-        /* Ignore issues that were already completed before the sprint had started */
-        if(change.key in alreadyDone)
-        {
-          return true;
-        }
+            # Skip changes that are not sprint scope changes
+            if 'added' not in change:
+                continue
 
-        /* Choose whether to add it to the initialScope or to the scopeChanges */
-        if(timestamp <= sprintStart)
-        {
-          initialScope.push( { 'timestamp' : timestamp,
-                               'added'     : change.added,
-                               'issueName' : change.key } );
-        }
-        else if(timestamp <= sprintEnd)
-        {
-          scopeChanges.push( { 'timestamp' : timestamp,
-                               'added'     : change.added,
-                               'issueName' : change.key } );
-        }
+            # Ignore issues that were already completed before the sprint had started
+            if change['key'] in alreadyDone:
+                continue
 
-        if(!(change.key in tmpSet))
-        {
-          tmpSet[change.key] = true;
-          issueNames.push(change.key);
-        }
-      });
-    });
+            # Choose whether to add it to the initialScope or to the scopeChanges
+            if timestamp <= sprintStart:
+                initialScope.append( { 'timestamp' : timestamp,
+                                       'added'     : change['added'],
+                                       'issueName' : change['key'] } )
+            elif timestamp <= sprintEnd:
+                scopeChanges.append( { 'timestamp' : timestamp,
+                                       'added'     : change['added'],
+                                       'issueName' : change['key'] } )
+
+            if change['key'] not in tmpSet:
+                tmpSet.add(change['key'])
+                issueNames.append(change['key']);
+
+    initialScope.sort(key = lambda x: timestamp_to_seconds(x['timestamp']))
+    scopeChanges.sort(key = lambda x: timestamp_to_seconds(x['timestamp']))
 
     return { 'names' : issueNames,
              'initial' : initialScope,
-             'changes' : scopeChanges };
-  }
-    '''
-    return { 'names' : [],
-             'initial' : [],
-             'changes' : [] }
+             'changes' : scopeChanges }
 
 def getInitialScope(initialIssues, effortForIssues):
-    '''
-  {
-    var initialScope = 0;
+    initialScope = 0
 
-    log('Calculating initial sprint scope');
+    log('Calculating initial sprint scope')
 
-    $.each(initialIssues, function(index, issue)
-    {
-      var effort = effortForIssues[issue.issueName] / 3600;
-      initialScope += effort;
-      log("  adding " + issue.issueName + ": " + effort + " hours");
-    });
+    for issue in initialIssues:
+        effort = effortForIssues[issue['issueName']] / 3600
+        initialScope += effort;
+        log("  adding %s: %d hours" % (issue['issueName'], effort))
 
-    log("  Initial sprint scope is " + initialScope + " hours");
+    log("  Initial sprint scope is %d hours" % initialScope)
 
-    return initialScope;
-  }
-    '''
-    return 0
+    return initialScope
 
 def calculateScopeChanges(sprintStart, sprintEnd, scopeChangingIssues, effortForIssues):
     scope = 0
@@ -792,16 +745,16 @@ def calculateScopeChanges(sprintStart, sprintEnd, scopeChangingIssues, effortFor
     scopeChanges.append( [ copy.deepcopy(sprintStart), 0 ] );
 
     for scopeChange in scopeChangingIssues:
-        effort = effortForIssues[scopeChange.issueName] / 3600
+        effort = effortForIssues[scopeChange['issueName']] / 3600
 
-        if scopeChange.added:
+        if scopeChange['added']:
             scope += effort
-            log('  added %s: %d hours' % (scopeChange.issueName, effort))
+            log('  added %s: %d hours at %s' % (scopeChange['issueName'], effort, scopeChange['timestamp']))
         else:
             scope -= effort
-            log('  removed %s: %d hours' % (scopeChange.issueName, effort))
+            log('  removed %s: %d hours at %s' % (scopeChange['issueName'], effort, scopeChange['timestamp']))
 
-        scopeChanges.push( [ copy.deepcopy(scopeChange.timestamp), scope ] )
+        scopeChanges.append( [ copy.deepcopy(scopeChange['timestamp']), scope ] )
 
     log('  Overall scope change: %d hours' % scope)
 
@@ -814,20 +767,14 @@ def createSprintScopeLine(plotItem, data):
     lineData = [[value[0], endScope - value[1]] for value in data]
 
     pen = pg.mkPen('k', width=1)
-
     plotItem.plot(x_timestamps_to_seconds_np(createSegments(lineData, True)), pen = pen)
 
 def getIdealBurndown(sprintStart, sprintEnd, finalSprintScope):
     return [ [copy.deepcopy(sprintStart), finalSprintScope], [copy.deepcopy(sprintEnd), 0] ]
 
 def createIdealBurndownLine(plotItem, idealBurndownData):
-    '''
-  {
-    return { 'color' : '#c0c0c0',
-             'data' : idealBurndownData };
-  }
-    '''
-    pass
+    pen = pg.mkPen('#c0c0c0', width=1)
+    plotItem.plot(x_timestamps_to_seconds_np(createSegments(idealBurndownData, True)), pen = pen)
 
 def getActualBurndown(sprintStart, sprintEnd, finalSprintScope, issues):
     remainingSprintEffort = finalSprintScope
