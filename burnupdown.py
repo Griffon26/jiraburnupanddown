@@ -774,7 +774,7 @@ def getIdealBurndown(sprintStart, sprintEnd, finalSprintScope):
 
 def createIdealBurndownLine(plotItem, idealBurndownData):
     pen = pg.mkPen('#c0c0c0', width=1)
-    plotItem.plot(x_timestamps_to_seconds_np(createSegments(idealBurndownData, True)), pen = pen)
+    plotItem.plot(x_timestamps_to_seconds_np(idealBurndownData), pen = pen)
 
 def getActualBurndown(sprintStart, sprintEnd, finalSprintScope, issues):
     remainingSprintEffort = finalSprintScope
@@ -800,13 +800,8 @@ def getActualBurndown(sprintStart, sprintEnd, finalSprintScope, issues):
     return actual
 
 def createActualBurndownLine(plotItem, actualBurndownData):
-    '''
-  {
-    return { 'color' : 'blue',
-             'data'  : createSegments(actualBurndownData, true) };
-  }
-    '''
-    pass
+    pen = pg.mkPen('b', width=1)
+    plotItem.plot(x_timestamps_to_seconds_np(createSegments(actualBurndownData, True)), pen = pen)
 
 def adjustForHiddenWeekends(points, weekends):
     upcomingWeekends = weekends[:]
@@ -864,25 +859,6 @@ def determineSprintWeekends(sprintStart, sprintEnd):
     return weekends
 
 def createDayLabels(sprintStart, sprintEnd):
-    '''
-  {
-    var labels = [];
-    var day = sprintStart.clone().hours(12).minutes(0).seconds(0).milliseconds(0);
-    if(day < sprintStart)
-    {
-      day.add(1, 'day');
-    }
-    while(day < sprintEnd)
-    {
-      if([6,7].indexOf(day.isoWeekday()) == -1)
-      {
-        labels.push([day.clone(), day.format('ddd')]);
-      }
-      day.add(1, 'day');
-    }
-    return labels;
-  }
-    '''
     labels = []
     day = sprintStart.replace(hour=12, minute=0, second = 0, microsecond = 0)
     if day < sprintStart:
@@ -959,56 +935,35 @@ def calculateActualBurnup(sprintStart, sprintEnd, issueWorklogs, burnupBudget, p
     return burnup
 
 def createActualBurnupLine(plotItem, actualBurnupData):
-    '''
-  {
-    return { 'color' : 'red',
-             'data'  : createSegments(actualBurnupData, true) };
-  }
-    '''
-    pass
+    pen = pg.mkPen('r', width=1)
+    plotItem.plot(x_timestamps_to_seconds_np(createSegments(actualBurnupData, True)), pen = pen)
 
 # This function is a bit different because it calculates data from a line
 # from which the weekends have already been removed. This makes it easier to
 # calculate the slope of the projected burnup.
 def calculateProjectedBurnup(zeroData, actualBurnupData):
-    '''
-  {
-    var burnupStart = actualBurnupData[0][0];
-    var burnupStartHeight = actualBurnupData[0][1];
-    var burnupEnd = actualBurnupData[actualBurnupData.length - 1][0];
-    var burnupEndHeight = actualBurnupData[actualBurnupData.length - 1][1];
+    burnupStart = actualBurnupData[0][0];
+    burnupStartHeight = actualBurnupData[0][1];
+    burnupEnd = actualBurnupData[-1][0];
+    burnupEndHeight = actualBurnupData[-1][1];
 
-    var sprintStart = zeroData[0][0];
-    var sprintEnd = zeroData[zeroData.length - 1][0];
+    sprintStart = zeroData[0][0];
+    sprintEnd = zeroData[-1][0];
 
-    var projectedBurnupHeight = ((burnupEndHeight - burnupStartHeight) / burnupEnd.diff(burnupStart)) * sprintEnd.diff(sprintStart) + burnupStartHeight;
+    projectedBurnupHeight = ((burnupEndHeight - burnupStartHeight) / (burnupEnd - burnupStart).total_seconds()) * (sprintEnd - sprintStart).total_seconds() + burnupStartHeight;
 
-    return [ [burnupEnd.clone(), burnupEndHeight], [sprintEnd.clone(), projectedBurnupHeight] ];
-  }
-    '''
-    return [ (0, 0), (0, 0) ]
+    return [ [copy.deepcopy(burnupEnd), burnupEndHeight], [copy.deepcopy(sprintEnd), projectedBurnupHeight] ]
 
 def createProjectedBurnupLine(plotItem, projectedBurnupData):
-    '''
-  {
-    return { color: 'red',
-             dashes : { show: true, lineWidth : 1 },
-             data : projectedBurnupData };
-  }
-    '''
-    pass
+    pen = pg.mkPen('r', width=1, style=QtCore.Qt.DashLine)
+    plotItem.plot(x_timestamps_to_seconds_np(projectedBurnupData), pen = pen)
 
 def calculateIdealBurnup(sprintStart, sprintEnd, burnupBudget):
     return [ [copy.deepcopy(sprintStart), -burnupBudget], [copy.deepcopy(sprintEnd), 0] ]
 
 def createIdealBurnupLine(plotItem, idealBurnupData):
-    '''
-  {
-    return { color: '#c0c0c0',
-             data : idealBurnupData }
-  }
-    '''
-    pass
+    pen = pg.mkPen('#c0c0c0', width=1)
+    plotItem.plot(x_timestamps_to_seconds_np(idealBurnupData), pen = pen)
 
 def calculateExpectedBurndown(sprintStart, sprintEnd, finalSprintScope, projectedBurnupHeight):
     if projectedBurnupHeight < 0:
@@ -1017,13 +972,8 @@ def calculateExpectedBurndown(sprintStart, sprintEnd, finalSprintScope, projecte
         return []
 
 def createExpectedBurndownLine(plotItem, expectedBurndownData):
-    '''
-  {
-    return { color: 'green',
-             data : expectedBurndownData };
-  }
-    '''
-    pass
+    pen = pg.mkPen('g', width=1)
+    plotItem.plot(x_timestamps_to_seconds_np(expectedBurndownData), pen = pen)
 
 def annotateBudgetOverrun(plotItem, max_x, projectedBurnupHeight):
     '''
