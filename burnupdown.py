@@ -662,6 +662,7 @@ def getZeroData(sprintStart, sprintEnd):
 
 def createZeroLine(plotItem, zeroData):
     pen = pg.mkPen('k', width=1, style=QtCore.Qt.DashLine)
+    pen.setDashPattern([10, 10])
 
     plotItem.plot(x_timestamps_to_seconds_np(zeroData), pen = pen)
 
@@ -730,9 +731,9 @@ def getInitialScope(initialIssues, effortForIssues):
     for issue in initialIssues:
         effort = effortForIssues[issue['issueName']] / 3600
         initialScope += effort;
-        log("  adding %s: %d hours" % (issue['issueName'], effort))
+        log("  adding %s: %.2f hours" % (issue['issueName'], effort))
 
-    log("  Initial sprint scope is %d hours" % initialScope)
+    log("  Initial sprint scope is %.2f hours" % initialScope)
 
     return initialScope
 
@@ -740,7 +741,7 @@ def calculateScopeChanges(sprintStart, sprintEnd, scopeChangingIssues, effortFor
     scope = 0
     scopeChanges = []
 
-    log('Calculating sprint scope changes');
+    log('Calculating sprint scope changes')
 
     scopeChanges.append( [ copy.deepcopy(sprintStart), 0 ] );
 
@@ -749,14 +750,14 @@ def calculateScopeChanges(sprintStart, sprintEnd, scopeChangingIssues, effortFor
 
         if scopeChange['added']:
             scope += effort
-            log('  added %s: %d hours at %s' % (scopeChange['issueName'], effort, scopeChange['timestamp']))
+            log('  added %s: %.2f hours at %s' % (scopeChange['issueName'], effort, scopeChange['timestamp']))
         else:
             scope -= effort
-            log('  removed %s: %d hours at %s' % (scopeChange['issueName'], effort, scopeChange['timestamp']))
+            log('  removed %s: %.2f hours at %s' % (scopeChange['issueName'], effort, scopeChange['timestamp']))
 
         scopeChanges.append( [ copy.deepcopy(scopeChange['timestamp']), scope ] )
 
-    log('  Overall scope change: %d hours' % scope)
+    log('  Overall scope change: %.2f hours' % scope)
 
     scopeChanges.append( [ copy.deepcopy(sprintEnd), scope ] )
 
@@ -766,19 +767,22 @@ def createSprintScopeLine(plotItem, data):
     endScope = data[-1][1];
     lineData = [[value[0], endScope - value[1]] for value in data]
 
-    pen = pg.mkPen('k', width=1)
+    pen = pg.mkPen('k', width=2)
     plotItem.plot(x_timestamps_to_seconds_np(createSegments(lineData, True)), pen = pen)
 
 def getIdealBurndown(sprintStart, sprintEnd, finalSprintScope):
     return [ [copy.deepcopy(sprintStart), finalSprintScope], [copy.deepcopy(sprintEnd), 0] ]
 
 def createIdealBurndownLine(plotItem, idealBurndownData):
-    pen = pg.mkPen('#c0c0c0', width=1)
+    pen = pg.mkPen('#c0c0c0', width=2)
     plotItem.plot(x_timestamps_to_seconds_np(idealBurndownData), pen = pen)
 
 def getActualBurndown(sprintStart, sprintEnd, finalSprintScope, issues):
+    totalEffortCompleted = 0
     remainingSprintEffort = finalSprintScope
     actual = [ [sprintStart, remainingSprintEffort] ]
+
+    log('Calculating actual burndown')
 
     for value in issues:
         if not value['fields']['resolutiondate']:
@@ -788,8 +792,13 @@ def getActualBurndown(sprintStart, sprintEnd, finalSprintScope, issues):
             if resolutionDate >= sprintStart and \
                resolutionDate <= sprintEnd:
                 if value['fields']['timetracking']['originalEstimateSeconds']:
-                    remainingSprintEffort -= value['fields']['timetracking']['originalEstimateSeconds'] / 3600
+                    completedEffort = value['fields']['timetracking']['originalEstimateSeconds'] / 3600
+                    totalEffortCompleted += completedEffort
+                    remainingSprintEffort -= completedEffort
                     actual.append([resolutionDate, remainingSprintEffort])
+                    log('  completed %s: %.2f hours at %s' % (value['key'], completedEffort, resolutionDate))
+
+    log('  Overall effort completed: %.2f hours' % totalEffortCompleted)
 
     currentDate = get_current_localtime()
 
@@ -800,7 +809,7 @@ def getActualBurndown(sprintStart, sprintEnd, finalSprintScope, issues):
     return actual
 
 def createActualBurndownLine(plotItem, actualBurndownData):
-    pen = pg.mkPen('b', width=1)
+    pen = pg.mkPen('b', width=2)
     plotItem.plot(x_timestamps_to_seconds_np(createSegments(actualBurndownData, True)), pen = pen)
 
 def adjustForHiddenWeekends(points, weekends):
@@ -887,18 +896,15 @@ def createDayLines(sprintStart, sprintEnd):
     return lines
 
 def createGridLineMarkings(plotItem, gridData):
-    '''
-  {
-    var markings = [];
-    $.each(gridData, function(index, value)
-    {
-      markings.push( { xaxis: { from: value[0], to: value[0] } } );
-    });
+    targetRect = plotItem.getViewBox().targetRect()
+    min_y = targetRect.top()
+    max_y = targetRect.bottom()
 
-    return markings;
-  }
-    '''
-    pass
+    markings = [ [ (value[0], min_y), (value[0], max_y) ] for value in gridData ]
+
+    pen = pg.mkPen('#e0e0e0', width=1)
+    for marking in markings:
+        plotItem.plot(x_timestamps_to_seconds_np(marking), pen = pen)
 
 def calculateActualBurnup(sprintStart, sprintEnd, issueWorklogs, burnupBudget, pointsPerHour):
     totalHoursIn = 0
@@ -913,13 +919,13 @@ def calculateActualBurnup(sprintStart, sprintEnd, issueWorklogs, burnupBudget, p
             if created >= sprintStart and created <= sprintEnd:
                 timeSpent.append([created, worklog['timeSpentSeconds']])
                 totalHoursIn += worklog['timeSpentSeconds'] / 3600
-                log('  adding %s: %d hours' % (issue['key'], worklog['timeSpentSeconds'] / 3600))
+                log('  adding %s: %.2f hours' % (issue['key'], worklog['timeSpentSeconds'] / 3600))
             else:
                 totalHoursOut += worklog['timeSpentSeconds'] / 3600;
-                log('  skipping %s: %d hours' % (issue['key'], worklog['timeSpentSeconds'] / 3600))
+                log('  skipping %s: %.2f hours' % (issue['key'], worklog['timeSpentSeconds'] / 3600))
 
-    log('  Added a total of %d hours from worklogs' % totalHoursIn)
-    log('  Skipped a total of %d hours from worklogs' % totalHoursOut)
+    log('  Added a total of %.2f hours from worklogs' % totalHoursIn)
+    log('  Skipped a total of %.2f hours from worklogs' % totalHoursOut)
 
     timeSpent.sort(key=byTimestamp)
 
@@ -935,7 +941,7 @@ def calculateActualBurnup(sprintStart, sprintEnd, issueWorklogs, burnupBudget, p
     return burnup
 
 def createActualBurnupLine(plotItem, actualBurnupData):
-    pen = pg.mkPen('r', width=1)
+    pen = pg.mkPen('r', width=2)
     plotItem.plot(x_timestamps_to_seconds_np(createSegments(actualBurnupData, True)), pen = pen)
 
 # This function is a bit different because it calculates data from a line
@@ -956,13 +962,14 @@ def calculateProjectedBurnup(zeroData, actualBurnupData):
 
 def createProjectedBurnupLine(plotItem, projectedBurnupData):
     pen = pg.mkPen('r', width=1, style=QtCore.Qt.DashLine)
+    pen.setDashPattern([10, 10])
     plotItem.plot(x_timestamps_to_seconds_np(projectedBurnupData), pen = pen)
 
 def calculateIdealBurnup(sprintStart, sprintEnd, burnupBudget):
     return [ [copy.deepcopy(sprintStart), -burnupBudget], [copy.deepcopy(sprintEnd), 0] ]
 
 def createIdealBurnupLine(plotItem, idealBurnupData):
-    pen = pg.mkPen('#c0c0c0', width=1)
+    pen = pg.mkPen('#c0c0c0', width=2)
     plotItem.plot(x_timestamps_to_seconds_np(idealBurnupData), pen = pen)
 
 def calculateExpectedBurndown(sprintStart, sprintEnd, finalSprintScope, projectedBurnupHeight):
@@ -972,7 +979,7 @@ def calculateExpectedBurndown(sprintStart, sprintEnd, finalSprintScope, projecte
         return []
 
 def createExpectedBurndownLine(plotItem, expectedBurndownData):
-    pen = pg.mkPen('g', width=1)
+    pen = pg.mkPen('#008000', width=2)
     plotItem.plot(x_timestamps_to_seconds_np(expectedBurndownData), pen = pen)
 
 def annotateBudgetOverrun(plotItem, max_x, projectedBurnupHeight):
@@ -1035,9 +1042,10 @@ def updateChart(plotItem, sprints, boardId, supportBoardId, sprintId, burnupBudg
     scopeChangingIssues = getScopeChangingIssues(sprintStart, sprintEnd, scopeChangeBurndownChart)
     effortForIssues = jiraREST6_getEffortForIssues(boardId, scopeChangingIssues['names']) if (jiraVersion == 6) else \
                       jiraREST7_getEffortForIssues(boardId, scopeChangingIssues['names'])
-    sprintScopeData = calculateScopeChanges(sprintStart, sprintEnd, scopeChangingIssues['changes'], effortForIssues)
 
     initialSprintScope = getInitialScope(scopeChangingIssues['initial'], effortForIssues)
+    sprintScopeData = calculateScopeChanges(sprintStart, sprintEnd, scopeChangingIssues['changes'], effortForIssues)
+
     finalSprintScope = initialSprintScope + sprintScopeData[-1][1]
 
     idealBurndownData = getIdealBurndown(sprintStart, sprintEnd, finalSprintScope)
@@ -1084,14 +1092,16 @@ def updateChart(plotItem, sprints, boardId, supportBoardId, sprintId, burnupBudg
     #
 
     plotItem.getAxis('bottom').setTicks([x_timestamps_to_seconds(axisData)])
-    plotItem.setYRange(-burnupBudget * pointsPerHour, finalSprintScope)
-    #plotItem.getViewBox().setRange(xRange = (timestamp_to_seconds(sprintStart), timestamp_to_seconds(sprintEnd)))
+    plotItem.setXRange(timestamp_to_seconds(zeroData[0][0]),
+                       timestamp_to_seconds(zeroData[-1][0]),
+                       padding = 0)
+    plotItem.setYRange(-burnupBudget * pointsPerHour, finalSprintScope, padding = 0)
 
     createZeroLine(plotItem, zeroData)
+    createGridLineMarkings(plotItem, gridData)
     createSprintScopeLine(plotItem, sprintScopeData)
     createIdealBurndownLine(plotItem, idealBurndownData)
     createActualBurndownLine(plotItem, actualBurndownData)
-    createGridLineMarkings(plotItem, gridData)
     createActualBurnupLine(plotItem, actualBurnupData)
     createProjectedBurnupLine(plotItem, projectedBurnupData)
     createIdealBurnupLine(plotItem, idealBurnupData)
@@ -1104,6 +1114,10 @@ def initializePlot(plotItem):
     plotItem.hideButtons()
     plotItem.setMenuEnabled(enableMenu = False)
     plotItem.getViewBox().setMouseEnabled(x = False, y = False)
+
+    plotItem.showGrid(x = False, y = True, alpha = 0.3)
+    plotItem.getAxis('bottom').setStyle(tickLength = 0)
+    plotItem.getAxis('left').setStyle(tickLength = 0)
 
 if __name__ == '__main__':
     app = QtGui.QApplication([])
