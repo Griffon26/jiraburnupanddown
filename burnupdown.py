@@ -4,18 +4,32 @@ import copy
 import datetime as dt
 from dateutil import parser
 import json
+import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui
 import pytz
-import numpy as np
+import requests
+import sys
 import tzlocal
 
 jiraVersion = 6
 
 logging = False
-write = False
-read = True
 
+config_file = '.jira-burn-up-and-down.rc'
+config = {}
+
+def saveConfiguration():
+    with open(config_file, 'wt') as f:
+        json.dump(config, f, indent = 2)
+
+def loadConfiguration():
+    global config
+    try:
+        with open(config_file, 'rt') as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        config = {}
 
 def log(msg):
     print(msg)
@@ -35,591 +49,221 @@ def x_timestamps_to_seconds(x_y_data):
 def x_timestamps_to_seconds_np(x_y_data):
     return np.array([[timestamp_to_seconds(x), y] for x, y in x_y_data])
 
-def getSprintDates(sprints, sprintId):
-    if jiraVersion == 6:
-        dates = jiraREST6_getSprintDates(boardId, sprintId)
-        sprintStart = dates['start']
-        sprintEnd = dates['end']
-    else:
+class JiraRest:
+
+    def __init__(self, url, readFromFile = False, writeToFile = False):
+        self.url = url
+        self.read = readFromFile
+        self.write = writeToFile
+        self.auth = None
+
+    def _get(self, resource, filename, params = None):
+        if self.read:
+            with open(filename, 'rt') as f:
+                jsonData = json.load(f)
+        else:
+            r = requests.get('%s/%s' % (self.url, resource), params=params, auth=self.auth)
+            r.raise_for_status()
+            jsonData = r.json()
+
+            if self.write:
+                with open(filename, 'wt') as f:
+                    json.dump(jsonData, f)
+
+        return jsonData
+
+class Jira6(JiraRest):
+
+    def __init__(self, url, readFromFile = False, writeToFile = False):
+        super().__init__(url, readFromFile = readFromFile, writeToFile = writeToFile)
+
+    def setAuth(self, auth):
+        self.auth = auth
+
+    def getScrumBoards(self):
+        jsonData = self._get('rest/greenhopper/1.0/xboard/selectorData', 'jira6/getScrumBoards.json')
+
+        boards = {}
+        for board in jsonData['rapidViews']:
+            if board['sprintSupportEnabled']:
+                boards[board['id']] = board['name']
+
+        return boards
+
+    def getSprints(self, boardId):
+        jsonData = self._get('rest/greenhopper/1.0/sprintquery/%s' % boardId, 'jira6/getSprints.json', params = {
+                'startAt' : 0,
+                'maxResults' : 1000
+            })
+
+        sprints = {}
+        for sprint in jsonData['sprints']:
+            sprints[sprint['id']] = sprint
+
+        return sprints
+
+    def getSprintDates(self, boardId, sprints, sprintId):
+        jsonData = self._get('rest/greenhopper/1.0/rapid/charts/sprintreport', 'jira6/getSprintDates.json', params = {
+                'rapidViewId' : boardId,
+                'sprintId' : sprintId
+            })
+
+        endDate = jsonData['sprint']['completeDate']
+        if endDate == 'None':
+            endDate = jsonData['sprint']['endDate']
+
+        localzone = tzlocal.get_localzone()
+
+        sprintStart = localzone.localize(parser.parse(jsonData['sprint']['startDate']))
+        sprintEnd = localzone.localize(parser.parse(endDate))
+
+        return sprintStart, sprintEnd
+
+    def getKanbanBoards(self):
+        jsonData = self._get('rest/greenhopper/1.0/xboard/selectorData', 'jira6/getKanbanBoards.json')
+
+        boards = {}
+        for view in jsonData['rapidViews']:
+            if view['sprintSupportEnabled']:
+                boards[view['id']] = view['name']
+
+        return boards
+
+    def getIssues(self, boardId, sprintId) :
+        jsonData = self._get('rest/api/2/search', 'jira6/getIssues.json', params = {
+                'startAt' : 0,
+                'maxResults' : 1000,
+                'jql' : 'issuetype = Sub-task and sprint = %s' % sprintId,
+                'fields' : 'timetracking,resolutiondate'
+            })
+
+        return jsonData['issues']
+
+    def getEffortForIssues(self, boardId, issueNames):
+        jsonData = self._get('rest/api/2/search', 'jira6/getEffortForIssues.json', params = {
+                'startAt' : 0,
+                'maxResults' : 1000,
+                'jql' : 'issuekey in (%s)' % ','.join(issueNames),
+                'fields' : 'timetracking,resolutiondate'
+            })
+
+        effortForIssues = {}
+        for issue in jsonData['issues']:
+            if 'originalEstimateSeconds' in issue['fields']['timetracking']:
+                effortForIssues[issue['key']] = issue['fields']['timetracking']['originalEstimateSeconds']
+            else:
+                effortForIssues[issue['key']] = 0
+
+        return effortForIssues
+
+    def getScopeChangeBurndownChart(self, rapidViewId, sprintId):
+        jsonData = self._get('rest/greenhopper/1.0/rapid/charts/scopechangeburndownchart', 'jira6/getScopeChangeBurndownChart.json', params = {
+                'rapidViewId' : rapidViewId,
+                'sprintId' : sprintId
+            })
+
+        return jsonData
+
+    def getIssueWorklogs(self, boardId, sprintStart, sprintEnd):
+        jsonData = self._get('rest/api/2/search', 'jira6/getIssueWorklogs.json', params = {
+                'startAt' : 0,
+                'maxResults' : 1000,
+                'jql' : '(resolved >= %s or resolution = unresolved) and ' % sprintStart + \
+                        '(created <= %s) and (updated >= %s) and (issuetype = Support)' % (sprintEnd, sprintStart),
+                'fields' : 'worklog'
+            })
+
+        return jsonData['issues']
+
+class Jira7(JiraRest):
+
+    def __init__(self, url, readFromFile = False, writeToFile = False):
+        super().__init__(url, readFromFile = readFromFile, writeToFile = writeToFile)
+
+    def setAuth(self, auth):
+        self.auth = auth
+
+    def getScrumBoards(self):
+        jsonData = self._get('rest/agile/1.0/board', 'jira7/getScrumBoards.json', params = {
+                'startAt' : 0,
+                'maxResults' : 1000,
+                'type' : 'scrum'
+            })
+
+        boards = {}
+        for board in jsonData['values']:
+            boards[board['id']] = board['name']
+
+        return boards
+
+    def getSprints(self, boardId):
+        jsonData = self._get('rest/agile/1.0/board/%s/sprint' % boardId, 'jira7/getSprints.json', params = {
+                'startAt' : 0,
+                'maxResults' : 1000
+            })
+
+        sprints = {}
+        for sprint in jsonData['values']:
+            sprints[sprint['id']] = sprint
+
+        return sprints
+
+    def getSprintDates(self, boardId, sprints, sprintId):
         sprintStart = parser.parse(sprints[sprintId]['startDate'])
         sprintEnd = parser.parse(sprints[sprintId]['endDate'])
 
-    return sprintStart, sprintEnd
+        return sprintStart, sprintEnd
 
-def jiraREST6_getScrumBoards():
-    '''
-  {
-    var boards = {};
-    var data;
 
-    if(read)
-    {
-      data = JSON.parse(fs.readFileSync('getScrumBoards.json'));
-    }
-    else
-    {
-      $.ajax({
-        async: false,
-        type: 'GET',
-        url: jiraurl + '/rest/greenhopper/1.0/xboard/selectorData',
-        success: function(jsonData) {
-          if(write)
-          {
-            fs.writeFileSync('getScrumBoards.json', JSON.stringify(jsonData, null, 8));
-          }
-          data = jsonData;
-        },
-        error: function(req, textStatus, errorThrown) {
-          alert('Error:' + errorThrown);
-        }
-      });
-    }
-    $.each(data.rapidViews, function(index, object)
-    {
-      if(object.sprintSupportEnabled)
-      {
-        boards[object.id] = object.name;
-      }
-    });
+    def getKanbanBoards(self):
+        jsonData = self._get('rest/agile/1.0/board', 'jira7/getKanbanBoards.json', params = {
+                'startAt' : 0,
+                'maxResults' : 1000,
+                'type' : 'kanban'
+            })
 
-    return boards;
-  }
-  '''
-    if read:
-        with open('jira6/getScrumBoards.json', 'rt') as f:
-            jsonData = json.loads(f.read())
-    else:
-        TODO # implement HTTP request
-
-    boards = {}
-    for board in jsonData['rapidViews']:
-        if board['sprintSupportEnabled']:
+        boards = {}
+        for board in jsonData['values']:
             boards[board['id']] = board['name']
 
-    return boards
+        return boards
 
-def jiraREST7_getScrumBoards():
-    '''
-  {
-    var boards = {};
-    
-    $.ajax({
-      async: false,
-      type: 'GET',
-      url: jiraurl + '/rest/agile/1.0/board',
-      data: { 'startAt' : 0,
-              'maxResults' : 1000,
-              'type' : 'scrum' },
-      success: function(jsonData) {
-        $.each(jsonData.values, function(index, object)
-        {
-          boards[object.id] = object.name;
-        });
-      },
-      error: function(req, textStatus, errorThrown) {
-        alert('Error:' + errorThrown);
-      }
-    });
-
-    return boards;
-  }
-    '''
-    if read:
-        with open('getScrumBoards.json', 'rt') as f:
-            jsonData = json.loads(f.read())
-    else:
-        TODO # implement HTTP request
-
-    boards = {}
-    for board in jsonData['values']:
-        boards[board['id']] = board['name']
-
-    return boards
-
-def jiraREST6_getKanbanBoards():
-    '''
-  {
-    var boards = {};
-    var data;
-    
-    if(read)
-    {
-      data = JSON.parse(fs.readFileSync('getKanbanBoards.json'));
-    }
-    else
-    {
-      $.ajax({
-        async: false,
-        type: 'GET',
-        url: jiraurl + '/rest/greenhopper/1.0/xboard/selectorData',
-        success: function(jsonData) {
-          if(write)
-          {
-            fs.writeFileSync('getKanbanBoards.json', JSON.stringify(jsonData, null, 8));
-          }
-          data = jsonData;
-        },
-        error: function(req, textStatus, errorThrown) {
-          alert('Error:' + errorThrown);
-        }
-      });
-    }
-    $.each(data.rapidViews, function(index, object)
-    {
-      if(!object.sprintSupportEnabled)
-      {
-        boards[object.id] = object.name;
-      }
-    });
-
-    return boards;
-  }
-    '''
-    pass
-
-def jiraREST7_getKanbanBoards():
-    '''
-  {
-    var boards = {};
-    
-    $.ajax({
-      async: false,
-      type: 'GET',
-      url: jiraurl + '/rest/agile/1.0/board',
-      data: { 'startAt' : 0,
-              'maxResults' : 1000,
-              'type' : 'kanban' },
-      success: function(jsonData) {
-        $.each(jsonData.values, function(index, object)
-        {
-          boards[object.id] = object.name;
-        });
-      },
-      error: function(req, textStatus, errorThrown) {
-        alert('Error:' + errorThrown);
-      }
-    });
-
-    return boards;
-  }
-    '''
-    pass
-
-def jiraREST6_getSprints(boardId):
-    '''
-  {
-    var sprints = {};
-    var data;
-    
-    if(read)
-    {
-      data = JSON.parse(fs.readFileSync('getSprints.json'));
-    }
-    else
-    {
-      $.ajax({
-        async: false,
-        type: 'GET',
-        url: jiraurl + '/rest/greenhopper/1.0/sprintquery/' + boardId,
-        data: { 'startAt' : 0,
-                'maxResults' : 1000 },
-        success: function(jsonData) {
-          if(write)
-          {
-            fs.writeFileSync('getSprints.json', JSON.stringify(jsonData, null, 8));
-          }
-          data = jsonData;
-        },
-        error: function(req, textStatus, errorThrown) {
-          alert('Error:' + errorThrown);
-        }
-      });
-    }
-    $.each(data.sprints, function(index, object)
-    {
-      sprints[object.id] = object;
-    });
-
-    return sprints;
-  }
-    '''
-    with open('jira6/getSprints.json', 'rt') as f:
-        jsonData = json.loads(f.read())
-
-    sprints = {}
-    for sprint in jsonData['sprints']:
-        sprints[sprint['id']] = sprint
-
-    return sprints
-
-def jiraREST6_getSprintDates(boardId, sprintId):
-    '''
-  {
-    var dates = {}
-    var data;
-    
-    if(read)
-    {
-      data = JSON.parse(fs.readFileSync('getSprintDates.json'));
-    }
-    else
-    {
-      $.ajax({
-        async: false,
-        type: 'GET',
-        url: jiraurl + '/rest/greenhopper/1.0/rapid/charts/sprintreport',
-        data: { 'rapidViewId' : boardId,
-                'sprintId' : sprintId },
-        success: function(jsonData) {
-          if(write)
-          {
-            fs.writeFileSync('getSprintDates.json', JSON.stringify(jsonData, null, 8));
-          }
-          data = jsonData;
-        },
-        error: function(req, textStatus, errorThrown) {
-          alert('Error:' + errorThrown);
-        }
-      });
-    }
-    var endDate = (data.sprint.completeDate != 'None') ? data.sprint.completeDate : data.sprint.endDate;
-
-    dates.start = moment(data.sprint.startDate, 'DD/MMM/YYYY h:mm a');
-    dates.end = moment(endDate, 'DD/MMM/YYYY h:mm a');
-
-    return dates;
-  }
-    '''
-    with open('jira6/getSprintDates.json', 'rt') as f:
-        jsonData = json.loads(f.read())
-
-    endDate = jsonData['sprint']['completeDate']
-    if endDate == 'None':
-        endDate = jsonData['sprint']['endDate']
-
-    localzone = tzlocal.get_localzone()
-    
-    dates = {}
-    dates['start'] = localzone.localize(parser.parse(jsonData['sprint']['startDate']))
-    dates['end'] = localzone.localize(parser.parse(endDate))
-
-    return dates
-
-def jiraREST7_getSprints(boardId):
-    '''
-  {
-    var sprints = {};
-    
-    $.ajax({
-      async: false,
-      type: 'GET',
-      url: jiraurl + '/rest/agile/1.0/board/' + boardId + '/sprint',
-      data: { 'startAt' : 0,
-              'maxResults' : 1000 },
-      success: function(jsonData) {
-        $.each(jsonData.values, function(index, object)
-        {
-          sprints[object.id] = object;
-        });
-      },
-      error: function(req, textStatus, errorThrown) {
-        alert('Error:' + errorThrown);
-      }
-    });
-
-    return sprints;
-  }
-    '''
-    with open('getSprints.json', 'rt') as f:
-        jsonData = json.loads(f.read())
-
-    sprints = {}
-    for sprint in jsonData['values']:
-        sprints[sprint['id']] = sprint
-
-    return sprints
-
-def jiraREST6_getIssues(boardId, sprintId) :
-    '''
-  {
-    var issues;
-    var data;
-    
-    if(read)
-    {
-      data = JSON.parse(fs.readFileSync('getIssues.json'));
-    }
-    else
-    {
-      $.ajax({
-        async: false,
-        type: 'GET',
-        url: jiraurl + '/rest/api/2/search',
-        data: { 'startAt' : 0,
+    def getIssues(self, boardId, sprintId):
+        jsonData = self._get('rest/agile/1.0/board/%s/sprint/%s/issue' % (boardId, sprintId), 'jira7/getIssues.json', params = {
+                'startAt' : 0,
                 'maxResults' : 1000,
-                'jql' : 'issuetype = Sub-task and sprint = ' + sprintId,
-                'fields' : 'timetracking,resolutiondate'},
-        success: function(jsonData) {
-          if(write)
-          {
-            fs.writeFileSync('getIssues.json', JSON.stringify(jsonData, null, 8));
-          }
-          data = jsonData;
-        },
-        error: function(req, textStatus, errorThrown) {
-          alert('Error:' + errorThrown);
-        }
-      });
-    }
-    issues = data.issues;
+                'jql' : 'issuetype = Sub-task',
+                'fields' : 'timetracking,resolutiondate'
+            })
 
-    return issues;
-  }
-    '''
-    with open('jira6/getIssues.json', 'rt') as f:
-        jsonData = json.loads(f.read())
+        return jsonData['issues']
 
-    return jsonData['issues']
-
-def jiraREST7_getIssues(boardId, sprintId):
-    '''
-  {
-    var issues;
-    
-    $.ajax({
-      async: false,
-      type: 'GET',
-      url: jiraurl + '/rest/agile/1.0/board/' + boardId + '/sprint/' + sprintId + '/issue',
-      data: { 'startAt' : 0,
-              'maxResults' : 1000,
-              'jql' : 'issuetype = Sub-task',
-              'fields' : 'timetracking,resolutiondate'},
-      success: function(jsonData) {
-        issues = jsonData.issues;
-      },
-      error: function(req, textStatus, errorThrown) {
-        alert('Error:' + errorThrown);
-      }
-    });
-
-    return issues;
-  }
-    '''
-    with open('getIssues.json', 'rt') as f:
-        jsonData = json.loads(f.read())
-
-    return jsonData['issues']
-
-def jiraREST6_getEffortForIssues(boardId, issueNames):
-    '''
-  {
-    var effortForIssues = {}
-    var data;
-    
-    if(read)
-    {
-      data = JSON.parse(fs.readFileSync('getEffortForIssues.json'));
-    }
-    else
-    {
-      $.ajax({
-        async: false,
-        type: 'GET',
-        url: jiraurl + '/rest/api/2/search',
-        data: { 'startAt' : 0,
+    def getEffortForIssues(self, boardId, issueNames):
+        jsonData = self._get('rest/agile/1.0/board/%s/issue' % boardId, 'jira7/getEffortForIssues.json', params = {
+                'startAt' : 0,
                 'maxResults' : 1000,
-                'jql' : 'issuekey in (' + issueNames.join() + ')',
-                'fields' : 'timetracking'},
-        success: function(jsonData) {
-          if(write)
-          {
-            fs.writeFileSync('getEffortForIssues.json', JSON.stringify(jsonData, null, 8));
-          }
-          data = jsonData;
-        },
-        error: function(req, textStatus, errorThrown) {
-          alert('Error:' + errorThrown);
-        }
-      });
-    }
-    $.each(data.issues, function(index, issue)
-    {
-      if ('originalEstimateSeconds' in issue.fields.timetracking)
-      {
-        effortForIssues[issue.key] = issue.fields.timetracking.originalEstimateSeconds;
-      }
-      else
-      {
-        effortForIssues[issue.key] = 0;
-      }
-    });
+                'jql' : 'issuekey in (%s)' % ','.join(issueNames),
+                'fields' : 'timetracking'
+            })
 
-    return effortForIssues;
-  }
-    '''
-    with open('jira6/getEffortForIssues.json', 'rt') as f:
-        jsonData = json.loads(f.read())
+        effortForIssues = {}
+        for issue in jsonData['issues']:
+            if 'originalEstimateSeconds' in issue['fields']['timetracking']:
+                effortForIssues[issue['key']] = issue['fields']['timetracking']['originalEstimateSeconds']
+            else:
+                effortForIssues[issue['key']] = 0
 
-    effortForIssues = {}
-    for issue in jsonData['issues']:
-        if 'originalEstimateSeconds' in issue['fields']['timetracking']:
-            effortForIssues[issue['key']] = issue['fields']['timetracking']['originalEstimateSeconds']
-        else:
-            effortForIssues[issue['key']] = 0
+        return effortForIssues
 
-    return effortForIssues
-
-def jiraREST7_getEffortForIssues(boardId, issueNames):
-    '''
-  {
-    var effortForIssues = {}
-    
-    $.ajax({
-      async: false,
-      type: 'GET',
-      url: jiraurl + '/rest/agile/1.0/board/' + boardId + '/issue',
-      data: { 'startAt' : 0,
-              'maxResults' : 1000,
-              'jql' : 'issuekey in (' + issueNames.join() + ')',
-              'fields' : 'timetracking'},
-      success: function(jsonData) {
-        $.each(jsonData.issues, function(index, issue)
-        {
-          if ('originalEstimateSeconds' in issue.fields.timetracking)
-          {
-            effortForIssues[issue.key] = issue.fields.timetracking.originalEstimateSeconds;
-          }
-          else
-          {
-            effortForIssues[issue.key] = 0;
-          }
-        });
-      },
-      error: function(req, textStatus, errorThrown) {
-        alert('Error:' + errorThrown);
-      }
-    });
-
-    return effortForIssues;
-  }
-    '''
-    with open('getEffortForIssues.json', 'rt') as f:
-        jsonData = json.loads(f.read())
-
-    effortForIssues = {}
-    for issue in jsonData['issues']:
-        if 'originalEstimateSeconds' in issue['fields']['timetracking']:
-            effortForIssues[issue['key']] = issue['fields']['timetracking']['originalEstimateSeconds']
-        else:
-            effortForIssues[issue['key']] = 0
-
-    return effortForIssues
-
-def jiraREST_getScopeChangeBurndownChart(rapidViewId, sprintId):
-    '''
-  {
-    var result;
-    var data;
-    
-    if(read)
-    {
-      data = JSON.parse(fs.readFileSync('getScopeChangeBurndownChart.json'));
-    }
-    else
-    {
-      $.ajax({
-        async: false,
-        type: 'GET',
-        url: jiraurl + '/rest/greenhopper/1.0/rapid/charts/scopechangeburndownchart',
-        data: { 'rapidViewId' : rapidViewId,
-                'sprintId' : sprintId },
-        success: function(jsonData) {
-          if(write)
-          {
-            fs.writeFileSync('getScopeChangeBurndownChart.json', JSON.stringify(jsonData, null, 8));
-          }
-          data = jsonData;
-        },
-        error: function(req, textStatus, errorThrown) {
-          alert('Error:' + errorThrown);
-        }
-      });
-    }
-
-    return data;
-  }
-    '''
-    with open('jira6/getScopeChangeBurndownChart.json', 'rt') as f:
-        jsonData = json.loads(f.read())
-
-    return jsonData
-
-def jiraREST6_getIssueWorklogs(boardId, sprintStart, sprintEnd):
-    '''
-  {
-    var result;
-    var data;
-    
-    if(read)
-    {
-      data = JSON.parse(fs.readFileSync('getIssueWorklogs.json'));
-    }
-    else
-    {
-      $.ajax({
-        async: false,
-        type: 'GET',
-        url: jiraurl + '/rest/api/2/search',
-        data: { 'startAt' : 0,
+    def getIssueWorklogs(self, boardId, sprintStart, sprintEnd):
+        jsonData = self._get('rest/agile/1.0/board/%s/issue' % boardId, 'jira7/getIssueWorklogs.json', params = {
+                'startAt' : 0,
                 'maxResults' : 1000,
-                'jql' : '(resolved >= ' + sprintStart + ' or resolution = unresolved) and (created <= ' + sprintEnd + ') and (updated >= ' + sprintStart + ') and (issuetype = Support)',
-                'fields' : 'worklog' },
-        success: function(jsonData) {
-          if(write)
-          {
-            fs.writeFileSync('getIssueWorklogs.json', JSON.stringify(jsonData, null, 8));
-          }
-          data = jsonData;
-        },
-        error: function(req, textStatus, errorThrown) {
-          alert('Error:' + errorThrown);
-        }
-      });
-    }
+                'jql' : 'worklogDate >= %s and worklogDate <= %s and issuetype = Support' % (sprintStart, sprintEnd),
+                'fields' : 'worklog'
+            })
 
-    return data.issues;
-  }
-    '''
-    with open('jira6/getIssueWorklogs.json', 'rt') as f:
-        jsonData = json.loads(f.read())
-
-    return jsonData['issues']
-
-def jiraREST7_getIssueWorklogs(boardId, sprintStart, sprintEnd):
-    '''
-  {
-    var result;
-    
-    $.ajax({
-      async: false,
-      type: 'GET',
-      url: jiraurl + '/rest/agile/1.0/board/2/issue',
-      data: { 'startAt' : 0,
-              'maxResults' : 1000,
-              'jql' : 'worklogDate >= ' + sprintStart + ' and worklogDate <= ' + sprintEnd + ' and issuetype = Support',
-              'fields' : 'worklog' },
-      success: function(jsonData) {
-        result = jsonData.issues;
-      },
-      error: function(req, textStatus, errorThrown) {
-        alert('Error:' + errorThrown);
-      }
-    });
-
-    return result;
-  }
-    '''
-    pass
+        return jsonDate['issues']
 
 '''
   function popup(object)
@@ -1021,11 +665,11 @@ def annotateBudgetOverrun(plotItem, max_x, projectedBurnupHeight):
     '''
     pass
 
-def updateChart(plotItem, sprints, boardId, supportBoardId, sprintId, burnupBudget, availability):
+def updateChart(jira, plotItem, sprints, boardId, supportBoardId, sprintId, burnupBudget, availability):
     #
     # Gather all data
     #
-    sprintStart, sprintEnd = getSprintDates(sprints, sprintId)
+    sprintStart, sprintEnd = jira.getSprintDates(boardId, sprints, sprintId)
 
     log("Sprint start is %s" % sprintStart)
     log("Sprint end   is %s" % sprintEnd)
@@ -1038,10 +682,9 @@ def updateChart(plotItem, sprints, boardId, supportBoardId, sprintId, burnupBudg
 
 
     # Burndown
-    scopeChangeBurndownChart = jiraREST_getScopeChangeBurndownChart(boardId, sprintId)
+    scopeChangeBurndownChart = jira.getScopeChangeBurndownChart(boardId, sprintId)
     scopeChangingIssues = getScopeChangingIssues(sprintStart, sprintEnd, scopeChangeBurndownChart)
-    effortForIssues = jiraREST6_getEffortForIssues(boardId, scopeChangingIssues['names']) if (jiraVersion == 6) else \
-                      jiraREST7_getEffortForIssues(boardId, scopeChangingIssues['names'])
+    effortForIssues = jira.getEffortForIssues(boardId, scopeChangingIssues['names'])
 
     initialSprintScope = getInitialScope(scopeChangingIssues['initial'], effortForIssues)
     sprintScopeData = calculateScopeChanges(sprintStart, sprintEnd, scopeChangingIssues['changes'], effortForIssues)
@@ -1050,8 +693,7 @@ def updateChart(plotItem, sprints, boardId, supportBoardId, sprintId, burnupBudg
 
     idealBurndownData = getIdealBurndown(sprintStart, sprintEnd, finalSprintScope)
 
-    issues = jiraREST6_getIssues(boardId, sprintId) if (jiraVersion == 6) else \
-             jiraREST7_getIssues(boardId, sprintId)
+    issues = jira.getIssues(boardId, sprintId)
     issues.sort(key=byResolutionDate)
     actualBurndownData = getActualBurndown(sprintStart, sprintEnd, finalSprintScope, issues)
 
@@ -1060,8 +702,7 @@ def updateChart(plotItem, sprints, boardId, supportBoardId, sprintId, burnupBudg
 
     pointsPerHour = initialSprintScope / (availability - burnupBudget)
 
-    issueWorklogs = jiraREST6_getIssueWorklogs(supportBoardId, sprintStart, sprintEnd) if (jiraVersion == 6) else \
-                    jiraREST7_getIssueWorklogs(supportBoardId, sprintStart, sprintEnd)
+    issueWorklogs = jira.getIssueWorklogs(supportBoardId, sprintStart, sprintEnd)
     actualBurnupData = calculateActualBurnup(sprintStart, sprintEnd, issueWorklogs, burnupBudget, pointsPerHour)
 
     idealBurnupData = calculateIdealBurnup(sprintStart, sprintEnd, burnupBudget * pointsPerHour)
@@ -1097,14 +738,14 @@ def updateChart(plotItem, sprints, boardId, supportBoardId, sprintId, burnupBudg
                        padding = 0)
     plotItem.setYRange(-burnupBudget * pointsPerHour, finalSprintScope, padding = 0)
 
-    createZeroLine(plotItem, zeroData)
     createGridLineMarkings(plotItem, gridData)
-    createSprintScopeLine(plotItem, sprintScopeData)
     createIdealBurndownLine(plotItem, idealBurndownData)
+    createIdealBurnupLine(plotItem, idealBurnupData)
+    createZeroLine(plotItem, zeroData)
+    createSprintScopeLine(plotItem, sprintScopeData)
     createActualBurndownLine(plotItem, actualBurndownData)
     createActualBurnupLine(plotItem, actualBurnupData)
     createProjectedBurnupLine(plotItem, projectedBurnupData)
-    createIdealBurnupLine(plotItem, idealBurnupData)
     createExpectedBurndownLine(plotItem, expectedBurndownData)
 
     annotateBudgetOverrun(plotItem, zeroData[-1][0], projectedBurnupHeight)
@@ -1121,6 +762,8 @@ def initializePlot(plotItem):
 
 if __name__ == '__main__':
     app = QtGui.QApplication([])
+
+    loadConfiguration()
 
     pg.setConfigOption('background', 'w')
     pg.setConfigOption('foreground', 'k')
@@ -1142,17 +785,27 @@ if __name__ == '__main__':
 
     initializePlot(pi)
 
-    boards = jiraREST6_getScrumBoards() if (jiraVersion == 6) else \
-             jiraREST7_getScrumBoards()
+
+    # There are two ways to use this script without a real Jira server.
+    # The first is to have this script read its data from files by setting
+    # readFromFile = True when creating an instance of the Jira class.
+    # The second is to start up the fakejira.py script and have this script
+    # connect to localhost:8080.
+
+    jiraClass = Jira6 if jiraVersion == 6 else Jira7
+    jira = jiraClass(config['jiraurl'], readFromFile = False, writeToFile = False)
+
+    boards = jira.getScrumBoards()
     print('All available board IDs are: %s' % boards)
     boardId = 8
-    sprints = jiraREST6_getSprints(boardId) if (jiraVersion == 6) else \
-              jiraREST7_getSprints(boardId)
+    sprints = jira.getSprints(boardId)
     sprintId = 533
     print('All available sprints for board %s are: %s' % (boardId, sprints))
-    updateChart(pi, sprints, boardId, None, sprintId, 100, 500)
+    updateChart(jira, pi, sprints, boardId, None, sprintId, 100, 500)
 
-    import sys
     if (sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION'):
         QtGui.QApplication.instance().exec_()
+
+    saveConfiguration()
+
 
