@@ -1,7 +1,7 @@
 # jira-burn-up-and-down
 A burndown chart for Jira that also keeps track of hours spent on a separate fixed-size budget
 
-Jira burn-up-and-down is an [electron](http://electron.atom.io/) app that talks to the 
+Jira burn-up-and-down is a python application that talks to the 
 [Jira](https://www.atlassian.com/software/jira) REST API to display a Scrum burndown chart
 combined with a burnup chart that shows how much of a fixed-size budget has been spent.
 
@@ -18,3 +18,13 @@ maintain their velocity.
 
 # Installation instructions
 TBD
+
+# Dependencies
+
+* numpy
+* requests
+* pyqt
+* pyqtgraph
+* pytz
+* tzlocal
+
