@@ -102,7 +102,7 @@ class Jira6(JiraRest):
 
         return sprints
 
-    def getSprintDates(self, boardId, sprints, sprintId):
+    def getSprintDates(self, boardId, sprintId):
         jsonData = self._get('rest/greenhopper/1.0/rapid/charts/sprintreport', 'jira6/getSprintDates.json', params = {
                 'rapidViewId' : boardId,
                 'sprintId' : sprintId
@@ -208,7 +208,8 @@ class Jira7(JiraRest):
 
         return sprints
 
-    def getSprintDates(self, boardId, sprints, sprintId):
+    def getSprintDates(self, boardId, sprintId):
+        # TODO: get sprint information from jira
         sprintStart = parser.parse(sprints[sprintId]['startDate'])
         sprintEnd = parser.parse(sprints[sprintId]['endDate'])
 
@@ -665,11 +666,11 @@ def annotateBudgetOverrun(plotItem, max_x, projectedBurnupHeight):
     '''
     pass
 
-def updateChart(jira, plotItem, sprints, boardId, supportBoardId, sprintId, burnupBudget, availability):
+def updateChart(jira, plotItem, boardId, supportBoardId, sprintId, burnupBudget, availability):
     #
     # Gather all data
     #
-    sprintStart, sprintEnd = jira.getSprintDates(boardId, sprints, sprintId)
+    sprintStart, sprintEnd = jira.getSprintDates(boardId, sprintId)
 
     log("Sprint start is %s" % sprintStart)
     log("Sprint end   is %s" % sprintEnd)
@@ -700,7 +701,10 @@ def updateChart(jira, plotItem, sprints, boardId, supportBoardId, sprintId, burn
 
     # Burnup
 
-    pointsPerHour = initialSprintScope / (availability - burnupBudget)
+    try:
+        pointsPerHour = initialSprintScope / (availability - burnupBudget)
+    except ZeroDivisionError:
+        pointsPerHour = 0
 
     issueWorklogs = jira.getIssueWorklogs(supportBoardId, sprintStart, sprintEnd)
     actualBurnupData = calculateActualBurnup(sprintStart, sprintEnd, issueWorklogs, burnupBudget, pointsPerHour)
@@ -732,6 +736,7 @@ def updateChart(jira, plotItem, sprints, boardId, supportBoardId, sprintId, burn
     # Plot
     #
 
+    plotItem.clear()
     plotItem.getAxis('bottom').setTicks([x_timestamps_to_seconds(axisData)])
     plotItem.setXRange(timestamp_to_seconds(zeroData[0][0]),
                        timestamp_to_seconds(zeroData[-1][0]),
@@ -750,15 +755,99 @@ def updateChart(jira, plotItem, sprints, boardId, supportBoardId, sprintId, burn
 
     annotateBudgetOverrun(plotItem, zeroData[-1][0], projectedBurnupHeight)
 
-def initializePlot(plotItem):
-    #plotItem.showGrid(True, True, 0.3)
-    plotItem.hideButtons()
-    plotItem.setMenuEnabled(enableMenu = False)
-    plotItem.getViewBox().setMouseEnabled(x = False, y = False)
+class Gui(QtCore.QObject):
 
-    plotItem.showGrid(x = False, y = True, alpha = 0.3)
-    plotItem.getAxis('bottom').setStyle(tickLength = 0)
-    plotItem.getAxis('left').setStyle(tickLength = 0)
+    sprintChanged = QtCore.pyqtSignal(int, int)
+
+    def __init__(self, get_boards_cb, get_sprints_cb):
+        super().__init__()
+
+        self.get_boards_cb = get_boards_cb
+        self.get_sprints_cb = get_sprints_cb
+
+        main_window = QtGui.QMainWindow()
+        central_widget = QtGui.QWidget()
+        main_window.setCentralWidget(central_widget)
+        vbox = QtGui.QVBoxLayout()
+        central_widget.setLayout(vbox)
+
+        self.plot_widget = pg.PlotWidget(name='Plot1')
+        vbox.addWidget(self.plot_widget)
+
+        self.boards_combobox = QtGui.QComboBox()
+        self.boards_combobox.currentIndexChanged.connect(self._boardSelectionChanged)
+        vbox.addWidget(self.boards_combobox)
+        self._updateBoardsCombobox()
+
+        boardId = self.boards_combobox.itemData(self.boards_combobox.currentIndex())
+
+        self.sprints_combobox = QtGui.QComboBox()
+        self.sprints_combobox.currentIndexChanged.connect(self._sprintSelectionChanged)
+        vbox.addWidget(self.sprints_combobox)
+        self._updateSprintsCombobox(boardId)
+
+        main_window.show()
+
+    def getPlotWidget(self):
+        return self.plot_widget
+
+    def _updateBoardsCombobox(self):
+        self.boards_combobox.clear()
+        for boardText, boardId in self.get_boards_cb():
+            self.boards_combobox.addItem(boardText, boardId)
+
+    def _updateSprintsCombobox(self, boardId):
+        self.sprints_combobox.clear()
+        for sprintText, sprintId in self.get_sprints_cb(boardId):
+            self.sprints_combobox.addItem(sprintText, sprintId)
+
+    def _boardSelectionChanged(self, boardIndex):
+        boardId = self.boards_combobox.itemData(boardIndex)
+        self._updateSprintsCombobox(boardId)
+
+    def _sprintSelectionChanged(self, sprintIndex):
+        self.sprintChanged.emit(self.boards_combobox.itemData(self.boards_combobox.currentIndex()),
+                                self.sprints_combobox.itemData(sprintIndex))
+
+class Chart():
+    def __init__(self, jira, plotItem):
+        self.jira = jira
+        self.plotItem = plotItem
+
+        self.boardId = None
+        self.sprintId = None
+        self.burnupBudget = 0
+        self.availability = 0
+
+        self.plotItem.hideButtons()
+        self.plotItem.setMenuEnabled(enableMenu = False)
+        self.plotItem.getViewBox().setMouseEnabled(x = False, y = False)
+
+        self.plotItem.showGrid(x = False, y = True, alpha = 0.3)
+        self.plotItem.getAxis('bottom').setStyle(tickLength = 0)
+        self.plotItem.getAxis('left').setStyle(tickLength = 0)
+
+    def setSprint(self, boardId, sprintId):
+        self.boardId = boardId
+        self.sprintId = sprintId
+        self._updateChartIfPossible()
+
+    def setSupportBoard(self, supportBoardId):
+        pass
+
+    def setBurnupBudget(self, burnupBudget):
+        self.burnupBudget = burnupBudget
+        self._updateChartIfPossible()
+
+    def setAvailability(self, availability):
+        self.availability = availability
+        self._updateChartIfPossible()
+
+    def _updateChartIfPossible(self):
+        if (self.boardId != None and
+            self.sprintId != None):
+            updateChart(self.jira, self.plotItem, self.boardId, None, self.sprintId, self.burnupBudget, self.availability)
+
 
 if __name__ == '__main__':
     app = QtGui.QApplication([])
@@ -768,22 +857,6 @@ if __name__ == '__main__':
     pg.setConfigOption('background', 'w')
     pg.setConfigOption('foreground', 'k')
     pg.setConfigOption('antialias', True)
-
-    mw = QtGui.QMainWindow()
-    cw = QtGui.QWidget()
-    mw.setCentralWidget(cw)
-    l = QtGui.QVBoxLayout()
-    cw.setLayout(l)
-
-    pw = pg.PlotWidget(name='Plot1')
-    l.addWidget(pw)
-
-
-    pi = pw.getPlotItem()
-
-    mw.show()
-
-    initializePlot(pi)
 
 
     # There are two ways to use this script without a real Jira server.
@@ -795,13 +868,19 @@ if __name__ == '__main__':
     jiraClass = Jira6 if jiraVersion == 6 else Jira7
     jira = jiraClass(config['jiraurl'], readFromFile = False, writeToFile = False)
 
-    boards = jira.getScrumBoards()
-    print('All available board IDs are: %s' % boards)
-    boardId = 8
-    sprints = jira.getSprints(boardId)
-    sprintId = 533
-    print('All available sprints for board %s are: %s' % (boardId, sprints))
-    updateChart(jira, pi, sprints, boardId, None, sprintId, 100, 500)
+    def get_boards():
+        return sorted((boardName, boardId) for boardId, boardName in jira.getScrumBoards().items())
+
+    def get_sprints(boardId):
+        return sorted(((sprint['name'], sprintId) for sprintId, sprint in jira.getSprints(boardId).items()), key=lambda x: x[1])
+
+    gui = Gui(get_boards, get_sprints)
+    chart = Chart(jira, gui.getPlotWidget().getPlotItem())
+
+    gui.sprintChanged.connect(chart.setSprint)
+    chart.setSprint(8, 533)
+    chart.setBurnupBudget(100)
+    chart.setAvailability(500)
 
     if (sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION'):
         QtGui.QApplication.instance().exec_()
