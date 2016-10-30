@@ -14,7 +14,8 @@ class JiraRequestHandler(SimpleHTTPRequestHandler):
         o = urlparse.urlparse(self.path)
         query_components = urlparse.parse_qs(o.query)
 
-
+        # To make this work, make sure that the json files named below are stored in a jira6 subdirectory.
+        # To get those files run burnupdown.py against a real Jira instance with writeToFile set to True.
         resources = [
             (r'rest/greenhopper/1.0/xboard/selectorData', {}, 'getScrumBoards.json'),
             (r'rest/greenhopper/1.0/sprintquery/[0-9]+', {}, 'getSprints.json'),
