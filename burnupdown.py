@@ -23,6 +23,9 @@ def saveConfiguration():
     with open(config_file, 'wt') as f:
         json.dump(config, f, indent = 2)
 
+def key_strings_to_int(d):
+    return dict( (int(k),(key_strings_to_int(v) if isinstance(v, dict) else v)) for k,v in d.items())
+
 def loadConfiguration():
     global config
     try:
@@ -30,6 +33,19 @@ def loadConfiguration():
             config = json.load(f)
     except FileNotFoundError:
         config = {}
+
+    if 'hours' not in config:
+        config['hours'] = {}
+    config['hours'] = key_strings_to_int(config['hours'])
+
+    if 'jiraurl' not in config:
+        config['jiraurl'] = 'http://127.0.0.1:8080'
+
+    if 'currentBoard' not in config:
+        config['currentBoard'] = None
+
+    if 'currentSprint' not in config:
+        config['currentSprint'] = None
 
 def log(msg):
     print(msg)
@@ -756,60 +772,109 @@ def updateChart(jira, plotItem, boardId, supportBoardId, sprintId, burnupBudget,
     annotateBudgetOverrun(plotItem, zeroData[-1][0], projectedBurnupHeight)
 
 class Gui(QtCore.QObject):
+    ''' The Gui class is responsible for constructing all widgets and emitting
+        signals when the user changes any of the inputs. It provides methods
+        for updating the list of boards or sprints that can be selected, as
+        well as functions for setting the current board, sprint, availability
+        and burnupBudget, but does not perform checks on the relations between
+        them as that is left to the model.
+    '''
 
-    sprintChanged = QtCore.pyqtSignal(int, int)
+    boardChanged = QtCore.pyqtSignal(int)
+    sprintChanged = QtCore.pyqtSignal(int)
+    availabilityChanged = QtCore.pyqtSignal(int)
+    burnupBudgetChanged = QtCore.pyqtSignal(int)
 
-    def __init__(self, get_boards_cb, get_sprints_cb):
+    def __init__(self):
         super().__init__()
 
-        self.get_boards_cb = get_boards_cb
-        self.get_sprints_cb = get_sprints_cb
-
-        main_window = QtGui.QMainWindow()
+        self.main_window = QtGui.QMainWindow()
         central_widget = QtGui.QWidget()
-        main_window.setCentralWidget(central_widget)
-        vbox = QtGui.QVBoxLayout()
-        central_widget.setLayout(vbox)
+        self.main_window.setCentralWidget(central_widget)
 
-        self.plot_widget = pg.PlotWidget(name='Plot1')
-        vbox.addWidget(self.plot_widget)
+        boardLabel = QtGui.QLabel('Scrum board')
+        sprintLabel = QtGui.QLabel('Sprint')
+        availabilityLabel = QtGui.QLabel('Availability (hours)')
+        burnupBudgetLabel = QtGui.QLabel('Burnup budget (hours)')
 
         self.boards_combobox = QtGui.QComboBox()
-        self.boards_combobox.currentIndexChanged.connect(self._boardSelectionChanged)
-        vbox.addWidget(self.boards_combobox)
-        self._updateBoardsCombobox()
-
-        boardId = self.boards_combobox.itemData(self.boards_combobox.currentIndex())
+        self.boards_combobox.activated.connect(self._boardSelectionChanged)
 
         self.sprints_combobox = QtGui.QComboBox()
-        self.sprints_combobox.currentIndexChanged.connect(self._sprintSelectionChanged)
-        vbox.addWidget(self.sprints_combobox)
-        self._updateSprintsCombobox(boardId)
+        self.sprints_combobox.activated.connect(self._sprintSelectionChanged)
 
-        main_window.show()
+        self.plot_widget = pg.PlotWidget(name='Plot1')
+
+        self.availabilityEdit = QtGui.QLineEdit()
+        self.availabilityEdit.setValidator(QtGui.QIntValidator())
+        self.availabilityEdit.editingFinished.connect(self._availabilityChanged)
+        self.burnupBudgetEdit = QtGui.QLineEdit()
+        self.burnupBudgetEdit.setValidator(QtGui.QIntValidator())
+        self.burnupBudgetEdit.editingFinished.connect(self._burnupBudgetChanged)
+
+        gridLayout = QtGui.QGridLayout()
+        central_widget.setLayout(gridLayout)
+
+        gridLayout.addWidget(boardLabel, 0, 0)
+        gridLayout.addWidget(self.boards_combobox, 0, 1)
+        gridLayout.addWidget(sprintLabel, 1, 0) 
+        gridLayout.addWidget(self.sprints_combobox, 1, 1)
+        gridLayout.addWidget(availabilityLabel, 0, 2)
+        gridLayout.addWidget(self.availabilityEdit, 0, 3)
+        gridLayout.addWidget(burnupBudgetLabel, 1, 2)
+        gridLayout.addWidget(self.burnupBudgetEdit, 1, 3)
+        gridLayout.addWidget(self.plot_widget, 2, 0, 1, 4)
+
+        self.main_window.show()
 
     def getPlotWidget(self):
         return self.plot_widget
 
-    def _updateBoardsCombobox(self):
-        self.boards_combobox.clear()
-        for boardText, boardId in self.get_boards_cb():
-            self.boards_combobox.addItem(boardText, boardId)
+    def setAvailability(self, availability):
+        self.availabilityEdit.setText(availability)
 
-    def _updateSprintsCombobox(self, boardId):
+    def setBurnupBudget(self, burnupBudget):
+        self.burnupBudgetEdit.setText(burnupBudget)
+
+    def updateAvailableBoards(self, boards):
+        self.boards_combobox.clear()
+        for boardName, boardId in sorted((boardName, boardId) for boardId, boardName in boards):
+            self.boards_combobox.addItem(boardName, boardId)
+
+    def updateAvailableSprints(self, sprints):
         self.sprints_combobox.clear()
-        for sprintText, sprintId in self.get_sprints_cb(boardId):
-            self.sprints_combobox.addItem(sprintText, sprintId)
+        for sprintId, sprintName in sorted(sprints):
+            self.sprints_combobox.addItem(sprintName, sprintId)
+
+    def updateHours(self, boardId, sprintId, availability, burnupBudget):
+        index = self.boards_combobox.findData(boardId)
+        self.boards_combobox.setCurrentIndex(index)
+
+        index = self.sprints_combobox.findData(sprintId)
+        self.sprints_combobox.setCurrentIndex(index)
+
+        self.availabilityEdit.setText(str(availability))
+        self.burnupBudgetEdit.setText(str(burnupBudget))
 
     def _boardSelectionChanged(self, boardIndex):
         boardId = self.boards_combobox.itemData(boardIndex)
-        self._updateSprintsCombobox(boardId)
+        self.boardChanged.emit(boardId)
 
     def _sprintSelectionChanged(self, sprintIndex):
-        self.sprintChanged.emit(self.boards_combobox.itemData(self.boards_combobox.currentIndex()),
-                                self.sprints_combobox.itemData(sprintIndex))
+        sprintId = self.sprints_combobox.itemData(sprintIndex)
+        self.sprintChanged.emit(sprintId)
+
+    def _availabilityChanged(self):
+        self.availabilityChanged.emit(int(self.availabilityEdit.text()))
+
+    def _burnupBudgetChanged(self):
+        self.burnupBudgetChanged.emit(int(self.burnupBudgetEdit.text()))
 
 class Chart():
+    ''' Chart draws a burndown chart on a plotItem given a boardId, sprintId,
+        availability and burnupBudget. It requests all other data about the
+        given sprint from Jira.
+    '''
     def __init__(self, jira, plotItem):
         self.jira = jira
         self.plotItem = plotItem
@@ -827,27 +892,125 @@ class Chart():
         self.plotItem.getAxis('bottom').setStyle(tickLength = 0)
         self.plotItem.getAxis('left').setStyle(tickLength = 0)
 
-    def setSprint(self, boardId, sprintId):
+    def updateChart(self, boardId, sprintId, availability, burnupBudget):
         self.boardId = boardId
         self.sprintId = sprintId
+        self.availability = availability
+        self.burnupBudget = burnupBudget
         self._updateChartIfPossible()
 
     def setSupportBoard(self, supportBoardId):
         pass
-
-    def setBurnupBudget(self, burnupBudget):
-        self.burnupBudget = burnupBudget
-        self._updateChartIfPossible()
-
-    def setAvailability(self, availability):
-        self.availability = availability
-        self._updateChartIfPossible()
 
     def _updateChartIfPossible(self):
         if (self.boardId != None and
             self.sprintId != None):
             updateChart(self.jira, self.plotItem, self.boardId, None, self.sprintId, self.burnupBudget, self.availability)
 
+class HoursManager():
+    ''' HoursManager maintains the availability and burnupBudget associated
+        with each sprint.
+    '''
+    def __init__(self, hours):
+        self.hours = copy.deepcopy(hours)
+
+    def getHours(self, boardId, sprintId):
+        if boardId not in self.hours:
+            self.hours[boardId] = {}
+
+        if sprintId not in self.hours[boardId]:
+            self.hours[boardId][sprintId] = (0, 0)
+
+        return self.hours[boardId][sprintId]
+
+    def setAvailability(self, boardId, sprintId, availability):
+        _, old_budget = self.getHours(boardId, sprintId)
+        self.hours[boardId][sprintId] = (availability, old_budget)
+
+    def setBurnupBudget(self, boardId, sprintId, burnupBudget):
+        old_avail, _ = self.getHours(boardId, sprintId)
+        self.hours[boardId][sprintId] = (old_avail, burnupBudget)
+
+class Model(QtCore.QObject):
+    ''' Model maintains the available boards and sprints as well as the
+        currently selected board, sprint, availability and burnupBudget.
+        It makes sure they are always consistent, for instance when a different
+        board is selected and the currently selected sprint is no longer valid,
+        it will select a sprint from the newly selected board. It uses the
+        hoursManager to retrieve the availability and burnupBudget associated
+        with the current sprint.
+        It emits signals when the available boards or sprints or data of the
+        currently selected sprint changes.
+    '''
+
+    boardListChanged = QtCore.pyqtSignal(list)
+    sprintListChanged = QtCore.pyqtSignal(list)
+    selectedSprintChanged = QtCore.pyqtSignal(int, int, int, int)
+
+    def __init__(self, hoursManager, currentBoard, currentSprint):
+        super().__init__()
+
+        self.hoursManager = hoursManager
+
+        self.currentBoard = currentBoard
+        self.currentSprint = currentSprint
+        self.availability = 0
+        self.burnupBudget = 0
+
+    def update(self):
+        self._updateBoardList()
+
+    def _updateBoardList(self):
+        prevBoard = self.currentBoard
+
+        self.boardList = jira.getScrumBoards()
+        if self.currentBoard not in self.boardList:
+            if self.boardList:
+                self.currentBoard = sorted(self.boardList.keys())[0]
+            else:
+                self.currentBoard = None
+
+        self.boardListChanged.emit([(k,v) for k,v in self.boardList.items()])
+
+        self._updateSprintList()
+
+    def _updateSprintList(self):
+        if self.currentBoard != None:
+            self.sprintList = dict(((sprintId, sprint['name']) for sprintId, sprint in jira.getSprints(self.currentBoard).items()))
+        else:
+            self.sprintList = {}
+
+        if self.currentSprint not in self.sprintList:
+            if self.sprintList:
+                self.currentSprint = sorted(self.sprintList.keys())[0]
+            else:
+                self.currentSprint = None
+
+        self.sprintListChanged.emit([(k,v) for k,v in self.sprintList.items()])
+
+        self._updateHours()
+
+    def _updateHours(self):
+        self.availability, self.burnupBudget = self.hoursManager.getHours(self.currentBoard, self.currentSprint) if self.currentBoard != None and self.currentSprint != None else (0, 0)
+        self.selectedSprintChanged.emit(self.currentBoard, self.currentSprint, self.availability, self.burnupBudget)
+
+    def setBoard(self, boardId):
+        if self.currentBoard != boardId:
+            self.currentBoard = boardId
+            self._updateSprintList()
+
+    def setSprint(self, sprintId):
+        if self.currentSprint != sprintId:
+            self.currentSprint = sprintId
+            self._updateHours()
+
+    def setAvailability(self, availability):
+        self.hoursManager.setAvailability(self.currentBoard, self.currentSprint, availability)
+        self._updateHours()
+
+    def setBurnupBudget(self, burnupBudget):
+        self.hoursManager.setBurnupBudget(self.currentBoard, self.currentSprint, burnupBudget)
+        self._updateHours()
 
 if __name__ == '__main__':
     app = QtGui.QApplication([])
@@ -868,22 +1031,30 @@ if __name__ == '__main__':
     jiraClass = Jira6 if jiraVersion == 6 else Jira7
     jira = jiraClass(config['jiraurl'], readFromFile = False, writeToFile = False)
 
-    def get_boards():
-        return sorted((boardName, boardId) for boardId, boardName in jira.getScrumBoards().items())
-
-    def get_sprints(boardId):
-        return sorted(((sprint['name'], sprintId) for sprintId, sprint in jira.getSprints(boardId).items()), key=lambda x: x[1])
-
-    gui = Gui(get_boards, get_sprints)
+    hoursManager = HoursManager(config['hours'])
+    model = Model(hoursManager, config['currentBoard'], config['currentSprint'])
+    gui = Gui()
     chart = Chart(jira, gui.getPlotWidget().getPlotItem())
 
-    gui.sprintChanged.connect(chart.setSprint)
-    chart.setSprint(8, 533)
-    chart.setBurnupBudget(100)
-    chart.setAvailability(500)
+    gui.boardChanged.connect(model.setBoard)
+    gui.sprintChanged.connect(model.setSprint)
+    gui.availabilityChanged.connect(model.setAvailability)
+    gui.burnupBudgetChanged.connect(model.setBurnupBudget)
+
+    model.boardListChanged.connect(gui.updateAvailableBoards)
+    model.sprintListChanged.connect(gui.updateAvailableSprints)
+    model.selectedSprintChanged.connect(gui.updateHours)
+
+    model.selectedSprintChanged.connect(chart.updateChart)
+
+    model.update()
 
     if (sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION'):
         QtGui.QApplication.instance().exec_()
+
+    config['hours'] = hoursManager.hours
+    config['currentBoard'] = model.currentBoard
+    config['currentSprint'] = model.currentSprint
 
     saveConfiguration()
 
