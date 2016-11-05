@@ -55,6 +55,9 @@ def loadConfiguration():
 
     if 'jiraurl' not in config:
         config['jiraurl'] = 'http://127.0.0.1:8080'
+        
+    if 'username' not in config:
+        config['username'] = ''
 
     if 'currentBoard' not in config:
         config['currentBoard'] = None
@@ -79,6 +82,12 @@ def x_timestamps_to_seconds(x_y_data):
 
 def x_timestamps_to_seconds_np(x_y_data):
     return np.array([[timestamp_to_seconds(x), y] for x, y in x_y_data])
+    
+def timestamp_to_jqltimestamp(ts):
+    localzone = tzlocal.get_localzone()
+    if str(ts.tzinfo) != str(localzone):
+        raise RuntimeError('Timezone of timestamp (%s) is not equal to local timezone (%s)' % (repr(ts.tzinfo), repr(localzone)))
+    return ts.strftime('"%Y-%m-%d %H:%M"')
 
 class JiraRest:
 
@@ -93,7 +102,8 @@ class JiraRest:
             with open(filename, 'rt') as f:
                 jsonData = json.load(f)
         else:
-            r = requests.get('%s/%s' % (self.url, resource), params=params, auth=self.auth)
+            print('--------------------------------\n%s/%s %s' % (self.url, resource, params))
+            r = requests.get('%s/%s' % (self.url, resource), params=params, auth=self.auth, verify=False)
             r.raise_for_status()
             jsonData = r.json()
 
@@ -102,6 +112,10 @@ class JiraRest:
                     json.dump(jsonData, f)
 
         return jsonData
+        
+    def setConnectionData(self, url, username, password):
+        self.url = url
+        self.auth = (username, password)
 
 class Jira6(JiraRest):
 
@@ -171,19 +185,20 @@ class Jira6(JiraRest):
         return jsonData['issues']
 
     def getEffortForIssues(self, boardId, issueNames):
-        jsonData = self._get('rest/api/2/search', 'jira6/getEffortForIssues.json', params = {
-                'startAt' : 0,
-                'maxResults' : 1000,
-                'jql' : 'issuekey in (%s)' % ','.join(issueNames),
-                'fields' : 'timetracking,resolutiondate'
-            })
-
         effortForIssues = {}
-        for issue in jsonData['issues']:
-            if 'originalEstimateSeconds' in issue['fields']['timetracking']:
-                effortForIssues[issue['key']] = issue['fields']['timetracking']['originalEstimateSeconds']
-            else:
-                effortForIssues[issue['key']] = 0
+        if issueNames:
+            jsonData = self._get('rest/api/2/search', 'jira6/getEffortForIssues.json', params = {
+                    'startAt' : 0,
+                    'maxResults' : 1000,
+                    'jql' : 'issuekey in (%s)' % ','.join(issueNames),
+                    'fields' : 'timetracking,resolutiondate'
+                })
+
+            for issue in jsonData['issues']:
+                if 'originalEstimateSeconds' in issue['fields']['timetracking']:
+                    effortForIssues[issue['key']] = issue['fields']['timetracking']['originalEstimateSeconds']
+                else:
+                    effortForIssues[issue['key']] = 0
 
         return effortForIssues
 
@@ -199,8 +214,8 @@ class Jira6(JiraRest):
         jsonData = self._get('rest/api/2/search', 'jira6/getIssueWorklogs.json', params = {
                 'startAt' : 0,
                 'maxResults' : 1000,
-                'jql' : '(resolved >= %s or resolution = unresolved) and ' % sprintStart + \
-                        '(created <= %s) and (updated >= %s) and (issuetype = Support)' % (sprintEnd, sprintStart),
+                'jql' : '(resolved >= %s or resolution = unresolved) and ' % timestamp_to_jqltimestamp(sprintStart) + \
+                        '(created <= %s) and (updated >= %s) and (issuetype = Support)' % (timestamp_to_jqltimestamp(sprintEnd), timestamp_to_jqltimestamp(sprintStart)),
                 'fields' : 'worklog'
             })
 
@@ -344,7 +359,10 @@ def createZeroLine(plotItem, zeroData):
 
 def getScopeChangingIssues(sprintStart, sprintEnd, scopeChangeBurndownChart):
     localzone = tzlocal.get_localzone()
-    timezoneOffset = sprintStart - dt.datetime.fromtimestamp(int(scopeChangeBurndownChart['startTime']) / 1000, tz=pytz.utc)
+    
+    def parseBurndownTimestamp(ts):
+        naive = dt.datetime.fromtimestamp(int(ts) / 1000, tz = pytz.utc).replace(tzinfo = None)
+        return localzone.localize(naive)
 
     initialScope = []
     scopeChanges = []
@@ -354,7 +372,7 @@ def getScopeChangingIssues(sprintStart, sprintEnd, scopeChangeBurndownChart):
     alreadyDone = set()
 
     for timestamp, changelist in scopeChangeBurndownChart['changes'].items():
-        timestamp = dt.datetime.fromtimestamp(int(timestamp) / 1000, tz=localzone) + timezoneOffset
+        timestamp = parseBurndownTimestamp(timestamp)
 
         for change in changelist:
             if ('column' in change and
@@ -363,7 +381,7 @@ def getScopeChangingIssues(sprintStart, sprintEnd, scopeChangeBurndownChart):
                 alreadyDone.add(change['key'])
 
     for timestamp, changelist in scopeChangeBurndownChart['changes'].items():
-        timestamp = dt.datetime.fromtimestamp(int(timestamp) / 1000, tz=localzone) + timezoneOffset
+        timestamp = parseBurndownTimestamp(timestamp)
 
         for change in changelist:
             # Skip parent issues
@@ -786,6 +804,36 @@ def updateChart(jira, plotItem, boardId, supportBoardId, sprintId, burnupBudget,
 
     annotateBudgetOverrun(plotItem, zeroData[-1][0], projectedBurnupHeight)
 
+class ConnectionDialog(QtGui.QDialog):
+
+    def __init__(self, jiraUrl, username, password):
+        super().__init__()
+        
+        self.jiraUrlLabel = QtGui.QLabel('JIRA URL')
+        self.jiraUrlEdit = QtGui.QLineEdit(jiraUrl)
+        self.usernameLabel = QtGui.QLabel('User')
+        self.usernameEdit = QtGui.QLineEdit(username)
+        self.passwordLabel = QtGui.QLabel('Password')
+        self.passwordEdit = QtGui.QLineEdit(password)
+        self.passwordEdit.setEchoMode(QtGui.QLineEdit.Password)
+        self.buttonBox = QtGui.QDialogButtonBox(QtGui.QDialogButtonBox.Ok | QtGui.QDialogButtonBox.Cancel)
+        self.buttonBox.button(QtGui.QDialogButtonBox.Ok).setText('Connect')
+        
+        self.gridLayout = QtGui.QGridLayout(self)
+        self.gridLayout.addWidget(self.jiraUrlLabel, 0, 0)
+        self.gridLayout.addWidget(self.jiraUrlEdit, 0, 1)
+        self.gridLayout.addWidget(self.usernameLabel, 1, 0)
+        self.gridLayout.addWidget(self.usernameEdit, 1, 1)
+        self.gridLayout.addWidget(self.passwordLabel, 2, 0)
+        self.gridLayout.addWidget(self.passwordEdit, 2, 1)
+        self.gridLayout.addWidget(self.buttonBox, 3, 0, 1, 2)
+        
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+        
+    def getConnectionData(self):
+        return (self.jiraUrlEdit.text(), self.usernameEdit.text(), self.passwordEdit.text())
+    
 class Gui(QtCore.QObject):
     ''' The Gui class is responsible for constructing all widgets and emitting
         signals when the user changes any of the inputs. It provides methods
@@ -799,13 +847,26 @@ class Gui(QtCore.QObject):
     sprintChanged = QtCore.pyqtSignal(int)
     availabilityChanged = QtCore.pyqtSignal(int)
     burnupBudgetChanged = QtCore.pyqtSignal(int)
+    connectionDataChanged = QtCore.pyqtSignal(str, str, str)
 
-    def __init__(self):
+    def __init__(self, jiraUrl, username, password):
         super().__init__()
+        
+        self.jiraUrl = jiraUrl
+        self.username = username
+        self.password = password
 
         self.main_window = QtGui.QMainWindow()
+        
         central_widget = QtGui.QWidget()
         self.main_window.setCentralWidget(central_widget)
+		
+        configConnectionButton = QtGui.QPushButton('Configure connection...')
+        configConnectionButton.clicked.connect(self._openConnectionDialog)
+        
+        connectionStatusLabel = QtGui.QLabel('Connection status')
+        self.connectionStatusText = QtGui.QLabel('')
+        self.connectionStatusText.setWordWrap(True)
 
         boardLabel = QtGui.QLabel('Scrum board')
         sprintLabel = QtGui.QLabel('Sprint')
@@ -830,27 +891,34 @@ class Gui(QtCore.QObject):
         gridLayout = QtGui.QGridLayout()
         central_widget.setLayout(gridLayout)
 
-        gridLayout.addWidget(boardLabel, 0, 0)
-        gridLayout.addWidget(self.boards_combobox, 0, 1)
-        gridLayout.addWidget(sprintLabel, 1, 0) 
-        gridLayout.addWidget(self.sprints_combobox, 1, 1)
-        gridLayout.addWidget(availabilityLabel, 0, 2)
-        gridLayout.addWidget(self.availabilityEdit, 0, 3)
-        gridLayout.addWidget(burnupBudgetLabel, 1, 2)
-        gridLayout.addWidget(self.burnupBudgetEdit, 1, 3)
-        gridLayout.addWidget(self.plot_widget, 2, 0, 1, 4)
+        gridLayout.addWidget(configConnectionButton, 0, 0, 1, 2)
+        gridLayout.addWidget(connectionStatusLabel, 0, 2)
+        gridLayout.addWidget(self.connectionStatusText, 0, 3, 1, 1)
+        
+        gridLayout.addWidget(boardLabel, 1, 0)
+        gridLayout.addWidget(self.boards_combobox, 1, 1)
+        gridLayout.addWidget(sprintLabel, 2, 0) 
+        gridLayout.addWidget(self.sprints_combobox, 2, 1)
+        gridLayout.addWidget(availabilityLabel, 1, 2)
+        gridLayout.addWidget(self.availabilityEdit, 1, 3)
+        gridLayout.addWidget(burnupBudgetLabel, 2, 2)
+        gridLayout.addWidget(self.burnupBudgetEdit, 2, 3)
+        gridLayout.addWidget(self.plot_widget, 3, 0, 1, 4)
 
         self.main_window.show()
 
     def getPlotWidget(self):
         return self.plot_widget
 
+    def setConnectionStatus(self, text):
+        self.connectionStatusText.setText(text)
+    
     def setAvailability(self, availability):
         self.availabilityEdit.setText(availability)
 
     def setBurnupBudget(self, burnupBudget):
         self.burnupBudgetEdit.setText(burnupBudget)
-
+        
     def updateAvailableBoards(self, boards):
         self.boards_combobox.clear()
         for boardName, boardId in sorted((boardName, boardId) for boardId, boardName in boards):
@@ -884,7 +952,13 @@ class Gui(QtCore.QObject):
 
     def _burnupBudgetChanged(self):
         self.burnupBudgetChanged.emit(int(self.burnupBudgetEdit.text()))
-
+        
+    def _openConnectionDialog(self):
+        connectionDialog = ConnectionDialog(self.jiraUrl, self.username, self.password)
+        if connectionDialog.exec_() == QtGui.QDialog.Accepted:
+            self.jiraUrl, self.username, self.password = connectionDialog.getConnectionData()
+            self.connectionDataChanged.emit(self.jiraUrl, self.username, self.password)
+            
 class Chart():
     ''' Chart draws a burndown chart on a plotItem given a boardId, sprintId,
         availability and burnupBudget. It requests all other data about the
@@ -1035,7 +1109,9 @@ if __name__ == '__main__':
     pg.setConfigOption('background', 'w')
     pg.setConfigOption('foreground', 'k')
     pg.setConfigOption('antialias', True)
-
+    
+    from requests.packages.urllib3.exceptions import InsecureRequestWarning
+    requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
     # There are two ways to use this script without a real Jira server.
     # The first is to have this script read its data from files by setting
@@ -1048,7 +1124,7 @@ if __name__ == '__main__':
 
     hoursManager = HoursManager(config['hours'])
     model = Model(hoursManager, config['currentBoard'], config['currentSprint'])
-    gui = Gui()
+    gui = Gui(config['jiraurl'], config['username'], '')
     chart = Chart(jira, gui.getPlotWidget().getPlotItem())
 
     gui.boardChanged.connect(model.setBoard)
@@ -1062,11 +1138,30 @@ if __name__ == '__main__':
 
     model.selectedSprintChanged.connect(chart.updateChart)
 
-    model.update()
+    def reconnect(jiraUrl, username, password):
+        jira.setConnectionData(jiraUrl, username, password)
+        try:
+            model.update()
+            gui.setConnectionStatus('OK')
+        except requests.exceptions.ConnectionError as e:
+            gui.setConnectionStatus(str(e))
+            gui._openConnectionDialog()
+        except requests.exceptions.HTTPError as e:
+            gui.setConnectionStatus(str(e))
+            status_code = e.response.status_code
+            if status_code == 401:
+                gui._openConnectionDialog()
+            elif status_code == 404:
+                QtCore.QTimer.singleShot(5000, lambda: reconnect(jiraUrl, username, password))
+            else:
+                raise
+    gui.connectionDataChanged.connect(reconnect, QtCore.Qt.QueuedConnection)
 
     if (sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION'):
         QtGui.QApplication.instance().exec_()
 
+    config['jiraurl'] = jira.url
+    config['username'] = jira.auth[0]
     config['hours'] = hoursManager.hours
     config['currentBoard'] = model.currentBoard
     config['currentSprint'] = model.currentSprint
