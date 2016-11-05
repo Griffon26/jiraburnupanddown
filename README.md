@@ -23,8 +23,9 @@ TBD
 
 * numpy
 * requests
-* pyqt
+* PyQt5
 * pyqtgraph
+* python-dateutil
 * pytz
 * tzlocal
 
