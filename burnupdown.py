@@ -875,9 +875,11 @@ class Gui(QtCore.QObject):
 
         self.boards_combobox = QtGui.QComboBox()
         self.boards_combobox.activated.connect(self._boardSelectionChanged)
+        self.boards_combobox.setSizeAdjustPolicy(QtGui.QComboBox.AdjustToContents)
 
         self.sprints_combobox = QtGui.QComboBox()
         self.sprints_combobox.activated.connect(self._sprintSelectionChanged)
+        self.sprints_combobox.setSizeAdjustPolicy(QtGui.QComboBox.AdjustToContents)
 
         self.plot_widget = pg.PlotWidget(name='Plot1')
 
@@ -1138,11 +1140,11 @@ if __name__ == '__main__':
 
     model.selectedSprintChanged.connect(chart.updateChart)
 
-    def reconnect(jiraUrl, username, password):
-        jira.setConnectionData(jiraUrl, username, password)
+    def reconnect():
         try:
             model.update()
             gui.setConnectionStatus('OK')
+            QtCore.QTimer.singleShot(5 * 60 * 1000, reconnect)
         except requests.exceptions.ConnectionError as e:
             gui.setConnectionStatus(str(e))
             gui._openConnectionDialog()
@@ -1152,10 +1154,15 @@ if __name__ == '__main__':
             if status_code == 401:
                 gui._openConnectionDialog()
             elif status_code == 404:
-                QtCore.QTimer.singleShot(5000, lambda: reconnect(jiraUrl, username, password))
+                QtCore.QTimer.singleShot(5000, reconnect)
             else:
                 raise
-    gui.connectionDataChanged.connect(reconnect, QtCore.Qt.QueuedConnection)
+                
+    def connect(jiraUrl, username, password):
+        jira.setConnectionData(jiraUrl, username, password)
+        reconnect()
+    
+    gui.connectionDataChanged.connect(connect, QtCore.Qt.QueuedConnection)
 
     if (sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION'):
         QtGui.QApplication.instance().exec_()
