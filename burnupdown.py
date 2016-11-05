@@ -862,7 +862,7 @@ class Gui(QtCore.QObject):
         self.main_window.setCentralWidget(central_widget)
 		
         configConnectionButton = QtGui.QPushButton('Configure connection...')
-        configConnectionButton.clicked.connect(self._openConnectionDialog)
+        configConnectionButton.clicked.connect(self.openConnectionDialog)
         
         connectionStatusLabel = QtGui.QLabel('Connection status')
         self.connectionStatusText = QtGui.QLabel('')
@@ -955,7 +955,7 @@ class Gui(QtCore.QObject):
     def _burnupBudgetChanged(self):
         self.burnupBudgetChanged.emit(int(self.burnupBudgetEdit.text()))
         
-    def _openConnectionDialog(self):
+    def openConnectionDialog(self):
         connectionDialog = ConnectionDialog(self.jiraUrl, self.username, self.password)
         if connectionDialog.exec_() == QtGui.QDialog.Accepted:
             self.jiraUrl, self.username, self.password = connectionDialog.getConnectionData()
@@ -1147,12 +1147,12 @@ if __name__ == '__main__':
             QtCore.QTimer.singleShot(5 * 60 * 1000, reconnect)
         except requests.exceptions.ConnectionError as e:
             gui.setConnectionStatus(str(e))
-            gui._openConnectionDialog()
+            gui.openConnectionDialog()
         except requests.exceptions.HTTPError as e:
             gui.setConnectionStatus(str(e))
             status_code = e.response.status_code
             if status_code == 401:
-                gui._openConnectionDialog()
+                gui.openConnectionDialog()
             elif status_code == 404:
                 QtCore.QTimer.singleShot(5000, reconnect)
             else:
@@ -1163,7 +1163,9 @@ if __name__ == '__main__':
         reconnect()
     
     gui.connectionDataChanged.connect(connect, QtCore.Qt.QueuedConnection)
-
+    
+    gui.openConnectionDialog()
+    
     if (sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION'):
         QtGui.QApplication.instance().exec_()
 
