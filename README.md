@@ -1,5 +1,5 @@
 # Jira burn-up-and-down
-A burndown chart for Jira that also keeps track of hours spent on a separate fixed-size budget
+A Scrum burndown chart for Jira that also keeps track of hours spent on a separate fixed-size budget
 
 Jira burn-up-and-down is a python application that talks to the 
 [Jira](https://www.atlassian.com/software/jira) REST API to display a Scrum burndown chart
@@ -17,7 +17,11 @@ All in all this chart gives a much clearer view of what is expected of the team 
 maintain their velocity.
 
 # Installation instructions
-TBD
+
+    python3 -m pip install jiraburnupanddown
+
+*Note: when using the above command make sure you are running a python version
+for which [PyQt5 wheels](https://pypi.python.org/pypi/PyQt5) are available.*
 
 # Dependencies
 
