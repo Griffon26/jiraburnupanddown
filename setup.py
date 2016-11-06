@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(name='jiraburnupanddown',
       version='0.1',
-      description='A burndown chart for Jira that also keeps track of hours spent on a separate fixed-size budget',
+      description='A Scrum burndown chart for Jira that also keeps track of hours spent on a separate fixed-size budget',
       url='https://github.com/Griffon26/jiraburnupanddown',
       author='Maurice van der Pot',
       author_email='griffon26@kfk4ever.com',
