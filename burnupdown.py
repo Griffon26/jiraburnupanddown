@@ -677,43 +677,25 @@ def createExpectedBurndownLine(plotItem, expectedBurndownData):
     plotItem.plot(x_timestamps_to_seconds_np(expectedBurndownData), pen = pen)
 
 def annotateBudgetOverrun(plotItem, max_x, projectedBurnupHeight):
-    '''
-  {
-    var placeholder = $("#placeholder");
+    pen = pg.mkPen('k', width=1)
 
-    var topEnd = plot.pointOffset({ x: max_x, y: projectedBurnupHeight });
-    var bottomEnd = plot.pointOffset({ x: max_x, y: 0 });
+    max_x = timestamp_to_seconds(max_x)
 
-    var spaceForText = bottomEnd.top - topEnd.top;
+    points = round(abs(projectedBurnupHeight))
+    if points >= 2:
+        arrowTop = max(0, projectedBurnupHeight)
+        arrowBottom = min(0, projectedBurnupHeight)
 
-    if(spaceForText >= 30)
-    {
-      // Draw a little arrow on top of the last label to demonstrate canvas
-      // drawing
+        arrowLine = [ (max_x, arrowTop),
+                      (max_x, arrowBottom) ]
+        plotItem.plot(np.array(arrowLine), pen = pen)
 
-      var arrowWidth = 2;
-      var arrowHeight = 10;
+        plotItem.addItem(pg.ArrowItem(pos = (max_x, arrowTop), angle = 90, tipAngle = 40, headLen=10, pen = None, brush = 'k'))
+        plotItem.addItem(pg.ArrowItem(pos = (max_x, arrowBottom), angle = -90, tipAngle = 40, headLen=10, pen = None, brush = 'k'))
 
-      var ctx = plot.getCanvas().getContext("2d");
-      topEnd.left += 2;
-      ctx.beginPath();
-      ctx.lineWidth = 1;
-      ctx.moveTo(topEnd.left - arrowWidth, topEnd.top + arrowHeight);
-      ctx.lineTo(topEnd.left, topEnd.top);
-      ctx.lineTo(topEnd.left + arrowWidth, topEnd.top + arrowHeight);
-      ctx.moveTo(topEnd.left, topEnd.top);
-      ctx.lineTo(topEnd.left, bottomEnd.top);
-      ctx.lineTo(topEnd.left - arrowWidth, bottomEnd.top - arrowHeight);
-      ctx.moveTo(topEnd.left, bottomEnd.top);
-      ctx.lineTo(topEnd.left + arrowWidth, bottomEnd.top - arrowHeight);
-      ctx.stroke();
-
-      placeholder.append("<div style='position:absolute;left:" + (topEnd.left + 4) + "px;top:" + topEnd.top + "px;color:#666;font-size:smaller'>" +
-                         "<p style='vertical-align:middle;display:table-cell;height:" + spaceForText + "px;'>" + Math.round(projectedBurnupHeight) + " points</p></div>");
-    }
-  }
-    '''
-    pass
+        text = pg.TextItem(text = '%d pts' % round(abs(projectedBurnupHeight)), color='k', anchor=(0, 0.5))
+        text.setPos(max_x, (arrowTop + arrowBottom) / 2)
+        plotItem.addItem(text)
 
 def updateChart(jira, plotItem, boardId, supportBoardId, sprintId, burnupBudget, availability):
     #
@@ -787,10 +769,13 @@ def updateChart(jira, plotItem, boardId, supportBoardId, sprintId, burnupBudget,
 
     plotItem.clear()
     plotItem.getAxis('bottom').setTicks([x_timestamps_to_seconds(axisData)])
-    plotItem.setXRange(timestamp_to_seconds(zeroData[0][0]),
-                       timestamp_to_seconds(zeroData[-1][0]),
-                       padding = 0)
-    plotItem.setYRange(-burnupBudget * pointsPerHour, finalSprintScope, padding = 0)
+
+    min_x = timestamp_to_seconds(zeroData[0][0])
+    max_x = timestamp_to_seconds(zeroData[-1][0]) + 24 * 3600
+    min_y = -burnupBudget * pointsPerHour * 1.1
+    max_y = finalSprintScope * 1.05
+
+    plotItem.setRange(QtCore.QRectF(min_x, min_y, max_x - min_x, max_y - min_y), padding = 0)
 
     createGridLineMarkings(plotItem, gridData)
     createIdealBurndownLine(plotItem, idealBurndownData)
