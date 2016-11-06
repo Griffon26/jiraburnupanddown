@@ -1010,9 +1010,10 @@ class Model(QtCore.QObject):
         currently selected board, sprint, availability and burnupBudget.
         It makes sure they are always consistent, for instance when a different
         board is selected and the currently selected sprint is no longer valid,
-        it will select a sprint from the newly selected board. It uses the
-        hoursManager to retrieve the availability and burnupBudget associated
-        with the current sprint.
+        it will select a sprint from the newly selected board. It uses Jira class
+        to retrieve available boards and sprints and the hoursManager to
+        retrieve the availability and burnupBudget associated with the current
+        sprint.
         It emits signals when the available boards or sprints or data of the
         currently selected sprint changes.
     '''
@@ -1021,10 +1022,11 @@ class Model(QtCore.QObject):
     sprintListChanged = QtCore.pyqtSignal(list)
     selectedSprintChanged = QtCore.pyqtSignal(int, int, int, int)
 
-    def __init__(self, hoursManager, currentBoard, currentSprint):
+    def __init__(self, jira, hoursManager, currentBoard, currentSprint):
         super().__init__()
 
         self.hoursManager = hoursManager
+        self.jira = jira
 
         self.currentBoard = currentBoard
         self.currentSprint = currentSprint
@@ -1037,7 +1039,7 @@ class Model(QtCore.QObject):
     def _updateBoardList(self):
         prevBoard = self.currentBoard
 
-        self.boardList = jira.getScrumBoards()
+        self.boardList = self.jira.getScrumBoards()
         if self.currentBoard not in self.boardList:
             if self.boardList:
                 self.currentBoard = sorted(self.boardList.keys())[0]
@@ -1050,7 +1052,7 @@ class Model(QtCore.QObject):
 
     def _updateSprintList(self):
         if self.currentBoard != None:
-            self.sprintList = dict(((sprintId, sprint['name']) for sprintId, sprint in jira.getSprints(self.currentBoard).items()))
+            self.sprintList = dict(((sprintId, sprint['name']) for sprintId, sprint in self.jira.getSprints(self.currentBoard).items()))
         else:
             self.sprintList = {}
 
@@ -1086,7 +1088,7 @@ class Model(QtCore.QObject):
         self.hoursManager.setBurnupBudget(self.currentBoard, self.currentSprint, burnupBudget)
         self._updateHours()
 
-if __name__ == '__main__':
+def main():
     app = QtGui.QApplication([])
 
     loadConfiguration()
@@ -1108,7 +1110,7 @@ if __name__ == '__main__':
     jira = jiraClass(config['jiraurl'], readFromFile = False, writeToFile = False)
 
     hoursManager = HoursManager(config['hours'])
-    model = Model(hoursManager, config['currentBoard'], config['currentSprint'])
+    model = Model(jira, hoursManager, config['currentBoard'], config['currentSprint'])
     gui = Gui(config['jiraurl'], config['username'], '')
     chart = Chart(jira, gui.getPlotWidget().getPlotItem())
 
@@ -1160,4 +1162,5 @@ if __name__ == '__main__':
 
     saveConfiguration()
 
-
+if __name__ == '__main__':
+    main()

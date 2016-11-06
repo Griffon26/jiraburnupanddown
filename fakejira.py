@@ -57,8 +57,12 @@ class JiraRequestHandler(SimpleHTTPRequestHandler):
 
         self.send_error(404, 'Data was requested for an unknown resource: %s' % self.path)
 
-httpd = TCPServer(("", port), JiraRequestHandler)
+def main():
+    httpd = TCPServer(("", port), JiraRequestHandler)
 
-print('Fake JIRA server running on port', port)
-httpd.serve_forever()
+    print('Fake JIRA server running on port', port)
+    httpd.serve_forever()
+
+if __name__ == '__main__':
+    main()
 
