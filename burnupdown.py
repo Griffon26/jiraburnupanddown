@@ -455,6 +455,12 @@ def createSprintScopeLine(plotItem, data):
 def getIdealBurndown(sprintStart, sprintEnd, finalSprintScope):
     return [ [copy.deepcopy(sprintStart), finalSprintScope], [copy.deepcopy(sprintEnd), 0] ]
 
+def getIdealBurndownValueAtTimestamp(ts, idealBurndownData):
+    startTimestamp = idealBurndownData[0][0]
+    endTimestamp = idealBurndownData[-1][0]
+    finalSprintScope = idealBurndownData[0][1]
+    return (endTimestamp - ts) / (endTimestamp - startTimestamp) * finalSprintScope
+
 def createIdealBurndownLine(plotItem, idealBurndownData):
     pen = pg.mkPen('#c0c0c0', width=2)
     plotItem.plot(x_timestamps_to_seconds_np(idealBurndownData), pen = pen)
@@ -653,26 +659,37 @@ def createExpectedBurndownLine(plotItem, expectedBurndownData):
     pen = pg.mkPen('#008000', width=2)
     plotItem.plot(x_timestamps_to_seconds_np(expectedBurndownData), pen = pen)
 
-def annotateBudgetOverrun(plotItem, max_x, projectedBurnupHeight):
+
+def drawVerticalAnnotatedArrow(plotItem, x, y1, y2, text, xanchor):
     pen = pg.mkPen('k', width=1)
 
+    arrowTop = max(y1, y2)
+    arrowBottom = min(y1, y2)
+
+    arrowLine = [ (x, arrowTop),
+                  (x, arrowBottom) ]
+    plotItem.plot(np.array(arrowLine), pen = pen)
+
+    plotItem.addItem(pg.ArrowItem(pos = (x, arrowTop), angle = 90, tipAngle = 40, headLen=10, pen = None, brush = 'k'))
+    plotItem.addItem(pg.ArrowItem(pos = (x, arrowBottom), angle = -90, tipAngle = 40, headLen=10, pen = None, brush = 'k'))
+
+    textItem = pg.TextItem(text=text, color='k', anchor=(xanchor, 0.5))
+    textItem.setPos(x, (arrowTop + arrowBottom) / 2)
+    plotItem.addItem(textItem)
+
+def annotateBudgetOverrun(plotItem, max_x, projectedBurnupHeight):
     max_x = timestamp_to_seconds(max_x)
 
     points = round(abs(projectedBurnupHeight))
     if points >= 2:
-        arrowTop = max(0, projectedBurnupHeight)
-        arrowBottom = min(0, projectedBurnupHeight)
+        drawVerticalAnnotatedArrow(plotItem, max_x, 0, projectedBurnupHeight, '%d pts' % points, 0)
 
-        arrowLine = [ (max_x, arrowTop),
-                      (max_x, arrowBottom) ]
-        plotItem.plot(np.array(arrowLine), pen = pen)
+def annotatePointsBehind(plotItem, currentTimestamp, currentIdealBurndownValue, currentActualBurndownValue):
+    x = timestamp_to_seconds(currentTimestamp)
 
-        plotItem.addItem(pg.ArrowItem(pos = (max_x, arrowTop), angle = 90, tipAngle = 40, headLen=10, pen = None, brush = 'k'))
-        plotItem.addItem(pg.ArrowItem(pos = (max_x, arrowBottom), angle = -90, tipAngle = 40, headLen=10, pen = None, brush = 'k'))
-
-        text = pg.TextItem(text = '%d pts' % round(abs(projectedBurnupHeight)), color='k', anchor=(0, 0.5))
-        text.setPos(max_x, (arrowTop + arrowBottom) / 2)
-        plotItem.addItem(text)
+    points = round(abs(currentIdealBurndownValue - currentActualBurndownValue))
+    if points >= 2:
+        drawVerticalAnnotatedArrow(plotItem, x, currentIdealBurndownValue, currentActualBurndownValue, '%d pts' % points, 1)
 
 def updateChart(jira, plotItem, boardId, supportBoardId, sprintId, burnupBudget, availability):
     #
@@ -764,7 +781,11 @@ def updateChart(jira, plotItem, boardId, supportBoardId, sprintId, burnupBudget,
     createProjectedBurnupLine(plotItem, projectedBurnupData)
     createExpectedBurndownLine(plotItem, expectedBurndownData)
 
+    currentTimestamp, currentActualBurndownValue = actualBurndownData[-1]
+    currentIdealBurndownValue = getIdealBurndownValueAtTimestamp(currentTimestamp, idealBurndownData)
+
     annotateBudgetOverrun(plotItem, zeroData[-1][0], projectedBurnupHeight)
+    annotatePointsBehind(plotItem, currentTimestamp, currentIdealBurndownValue, currentActualBurndownValue)
 
 class ConnectionDialog(QtGui.QDialog):
 
