@@ -16,14 +16,18 @@ changes are shown as a change in the baseline of the chart.
 All in all this chart gives a much clearer view of what is expected of the team in order to
 maintain their velocity.
 
-# Installation instructions
+## Screenshot
+
+![A screenshot of JIRA burn-up-and-down](/docs/images/screenshot.png?raw=true)
+
+## Installation instructions
 
     python3 -m pip install jiraburnupanddown
 
 *Note: when using the above command make sure you are running a python version
 for which [PyQt5 wheels](https://pypi.python.org/pypi/PyQt5) are available.*
 
-# Dependencies
+## Dependencies
 
 * numpy
 * PyQt5
