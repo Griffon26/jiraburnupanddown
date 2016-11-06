@@ -1,4 +1,4 @@
-# jira-burn-up-and-down
+# Jira burn-up-and-down
 A burndown chart for Jira that also keeps track of hours spent on a separate fixed-size budget
 
 Jira burn-up-and-down is a python application that talks to the 
@@ -22,10 +22,10 @@ TBD
 # Dependencies
 
 * numpy
-* requests
 * PyQt5
 * pyqtgraph
 * python-dateutil
 * pytz
+* requests
 * tzlocal
 
