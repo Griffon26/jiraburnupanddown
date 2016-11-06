@@ -1,3 +1,7 @@
-/jira6
-/jira7
+/build/
+/dist/
+/jira6/
+/jira7/
 /.jira-burn-up-and-down.rc
+/*.egg-info
+*.pyc
