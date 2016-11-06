@@ -7,7 +7,7 @@ setup(name='jiraburnupanddown',
       author='Maurice van der Pot',
       author_email='griffon26@kfk4ever.com',
       license='GPLv3+',
-      py_modules=['jiraburnupanddown'],
+      py_modules=['jiraburnupanddown', 'fakejira'],
       entry_points={
           'console_scripts': [
               'fakejira = fakejira:main',
