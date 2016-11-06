@@ -68,11 +68,6 @@ def loadConfiguration():
 def log(msg):
     print(msg)
 
-def get_current_localtime():
-    localzone = tzlocal.get_localzone()
-    currentTime = dt.datetime.utcnow().replace(tzinfo=pytz.utc).astimezone(localzone)
-    return currentTime
-
 def timestamp_to_seconds(timestamp):
     epoch = dt.datetime.fromtimestamp(0, pytz.utc)
     return (timestamp - epoch).total_seconds()
@@ -345,13 +340,15 @@ def createZeroLine(plotItem, zeroData):
 
     plotItem.plot(x_timestamps_to_seconds_np(zeroData), pen = pen)
 
-def getScopeChangingIssues(sprintStart, sprintEnd, scopeChangeBurndownChart):
+def parseBurndownTimestamp(ts):
     localzone = tzlocal.get_localzone()
-    
-    def parseBurndownTimestamp(ts):
-        naive = dt.datetime.fromtimestamp(int(ts) / 1000, tz = pytz.utc).replace(tzinfo = None)
-        return localzone.localize(naive)
+    naive = dt.datetime.fromtimestamp(int(ts) / 1000, tz = pytz.utc).replace(tzinfo = None)
+    return localzone.localize(naive)
 
+def getCurrentTimeFromBurndown(scopeChangeBurndownChart):
+    return parseBurndownTimestamp(scopeChangeBurndownChart['now'])
+
+def getScopeChangingIssues(sprintStart, sprintEnd, scopeChangeBurndownChart):
     initialScope = []
     scopeChanges = []
 
@@ -465,7 +462,7 @@ def createIdealBurndownLine(plotItem, idealBurndownData):
     pen = pg.mkPen('#c0c0c0', width=2)
     plotItem.plot(x_timestamps_to_seconds_np(idealBurndownData), pen = pen)
 
-def getActualBurndown(sprintStart, sprintEnd, finalSprintScope, issues):
+def getActualBurndown(sprintStart, sprintEnd, currentTime, finalSprintScope, issues):
     totalEffortCompleted = 0
     remainingSprintEffort = finalSprintScope
     actual = [ [sprintStart, remainingSprintEffort] ]
@@ -488,9 +485,7 @@ def getActualBurndown(sprintStart, sprintEnd, finalSprintScope, issues):
 
     log('  Overall effort completed: %.2f hours' % totalEffortCompleted)
 
-    currentDate = get_current_localtime()
-
-    lastDate = currentDate if currentDate < sprintEnd else sprintEnd
+    lastDate = currentTime if currentTime < sprintEnd else sprintEnd
 
     actual.append([copy.deepcopy(lastDate), remainingSprintEffort])
 
@@ -583,7 +578,7 @@ def createGridLineMarkings(plotItem, gridData):
     for marking in markings:
         plotItem.plot(x_timestamps_to_seconds_np(marking), pen = pen)
 
-def calculateActualBurnup(sprintStart, sprintEnd, issueWorklogs, burnupBudget, pointsPerHour):
+def calculateActualBurnup(sprintStart, sprintEnd, currentTime, issueWorklogs, burnupBudget, pointsPerHour):
     totalHoursIn = 0
     totalHoursOut = 0
     timeSpent = []
@@ -611,8 +606,8 @@ def calculateActualBurnup(sprintStart, sprintEnd, issueWorklogs, burnupBudget, p
     for ts in timeSpent:
         totalTimeSpent += ts[1]
         burnup.append([ts[0], ((totalTimeSpent / 3600) - burnupBudget) * pointsPerHour])
-    currentDate = get_current_localtime()
-    lastDate = currentDate if currentDate < sprintEnd else sprintEnd
+
+    lastDate = currentTime if currentTime < sprintEnd else sprintEnd
     burnup.append([copy.deepcopy(lastDate), ((totalTimeSpent / 3600) - burnupBudget) * pointsPerHour]);
 
     return burnup
@@ -710,6 +705,7 @@ def updateChart(jira, plotItem, boardId, supportBoardId, sprintId, burnupBudget,
     # Burndown
     scopeChangeBurndownChart = jira.getScopeChangeBurndownChart(boardId, sprintId)
     scopeChangingIssues = getScopeChangingIssues(sprintStart, sprintEnd, scopeChangeBurndownChart)
+    currentTime = getCurrentTimeFromBurndown(scopeChangeBurndownChart)
     effortForIssues = jira.getEffortForIssues(boardId, scopeChangingIssues['names'])
 
     initialSprintScope = getInitialScope(scopeChangingIssues['initial'], effortForIssues)
@@ -721,7 +717,7 @@ def updateChart(jira, plotItem, boardId, supportBoardId, sprintId, burnupBudget,
 
     issues = jira.getIssues(boardId, sprintId)
     issues.sort(key=byResolutionDate)
-    actualBurndownData = getActualBurndown(sprintStart, sprintEnd, finalSprintScope, issues)
+    actualBurndownData = getActualBurndown(sprintStart, sprintEnd, currentTime, finalSprintScope, issues)
 
 
     # Burnup
@@ -732,7 +728,7 @@ def updateChart(jira, plotItem, boardId, supportBoardId, sprintId, burnupBudget,
         pointsPerHour = 0
 
     issueWorklogs = jira.getIssueWorklogs(supportBoardId, sprintStart, sprintEnd)
-    actualBurnupData = calculateActualBurnup(sprintStart, sprintEnd, issueWorklogs, burnupBudget, pointsPerHour)
+    actualBurnupData = calculateActualBurnup(sprintStart, sprintEnd, currentTime, issueWorklogs, burnupBudget, pointsPerHour)
 
     idealBurnupData = calculateIdealBurnup(sprintStart, sprintEnd, burnupBudget * pointsPerHour)
 
