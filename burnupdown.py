@@ -312,13 +312,6 @@ class Jira7(JiraRest):
 
         return jsonDate['issues']
 
-'''
-  function popup(object)
-  {
-    alert(JSON.stringify(object, null, 8));
-  }
-
-'''
 def byTimestamp(x):
     return timestamp_to_seconds(x[0])
 
@@ -328,11 +321,6 @@ def byResolutionDate(x):
     else:
         result = 0
 
-    '''
-    popup('(' + x.id + ',' + x.fields.resolutiondate + ') ' + ((result < 0) ? '<' :
-                                                               (result > 0) ? '>' :
-                                                                             '==') + ' (' + y.id + ',' + y.fields.resolutiondate + ')');
-    '''
     return result
 
 def createSegments(inputdata, connected):
@@ -515,13 +503,6 @@ def adjustForHiddenWeekends(points, weekends):
     while pointIndex < len(points):
         nextPoint = points[pointIndex]
 
-        '''
-        popup({ 'nextPoint' : nextPoint,
-                  'nextWeekend' : nextWeekend,
-                  'points' : points,
-                  'weekends' : weekends,
-                  'accum' : accumulatedOffset.humanize() });
-        '''
         if upcomingWeekends:
             nextWeekend = upcomingWeekends[0]
         else:
@@ -537,11 +518,7 @@ def adjustForHiddenWeekends(points, weekends):
         else:
             nextPoint[0] -= accumulatedOffset
             pointIndex += 1
-    '''
-    popup({ 'points' : points,
-            'weekends' : weekends,
-            'accum' : accumulatedOffset.humanize() });
-            '''
+
     return points
 
 def determineSprintWeekends(sprintStart, sprintEnd):
