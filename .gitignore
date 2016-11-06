@@ -1,2 +1,3 @@
-/get*.json
-/node_modules
+/jira6
+/jira7
+/.jira-burn-up-and-down.rc
