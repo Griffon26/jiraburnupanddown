@@ -836,6 +836,7 @@ class Gui(QtCore.QObject):
         self.password = password
 
         self.main_window = QtGui.QMainWindow()
+        self.main_window.setWindowTitle('JIRA burn-up-and-down')
         
         central_widget = QtGui.QWidget()
         self.main_window.setCentralWidget(central_widget)
