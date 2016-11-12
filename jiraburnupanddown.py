@@ -655,17 +655,24 @@ def createExpectedBurndownLine(plotItem, expectedBurndownData):
 
 
 def drawVerticalAnnotatedArrow(plotItem, x, y1, y2, text, xanchor):
-    pen = pg.mkPen('k', width=1)
 
-    arrowTop = max(y1, y2)
-    arrowBottom = min(y1, y2)
+    # draw arrows in light gray so they don't look like part of the burndown when seen from a distance
+    arrowColor = '#c0c0c0'
+    pen = pg.mkPen(arrowColor, width=1)
+
+    # How much space should be left between the tips of the arrows and the specified Y positions
+    # This is to make it even clearer that the arrow is not part of the burndown when seen from a distance
+    arrowOffset = 0.25
+
+    arrowTop = max(y1, y2) - arrowOffset
+    arrowBottom = min(y1, y2) + arrowOffset
 
     arrowLine = [ (x, arrowTop),
                   (x, arrowBottom) ]
     plotItem.plot(np.array(arrowLine), pen = pen)
 
-    plotItem.addItem(pg.ArrowItem(pos = (x, arrowTop), angle = 90, tipAngle = 40, headLen=10, pen = None, brush = 'k'))
-    plotItem.addItem(pg.ArrowItem(pos = (x, arrowBottom), angle = -90, tipAngle = 40, headLen=10, pen = None, brush = 'k'))
+    plotItem.addItem(pg.ArrowItem(pos = (x, arrowTop), angle = 90, tipAngle = 40, headLen=10, pen = None, brush = arrowColor))
+    plotItem.addItem(pg.ArrowItem(pos = (x, arrowBottom), angle = -90, tipAngle = 40, headLen=10, pen = None, brush = arrowColor))
 
     textItem = pg.TextItem(text=text, color='k', anchor=(xanchor, 0.5))
     textItem.setPos(x, (arrowTop + arrowBottom) / 2)
