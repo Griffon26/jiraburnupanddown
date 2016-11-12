@@ -476,12 +476,11 @@ def getActualBurndown(sprintStart, sprintEnd, currentTime, finalSprintScope, iss
             resolutionDate = parser.parse(value['fields']['resolutiondate'])
             if resolutionDate >= sprintStart and \
                resolutionDate <= sprintEnd:
-                if value['fields']['timetracking']['originalEstimateSeconds']:
-                    completedEffort = value['fields']['timetracking']['originalEstimateSeconds'] / 3600
-                    totalEffortCompleted += completedEffort
-                    remainingSprintEffort -= completedEffort
-                    actual.append([resolutionDate, remainingSprintEffort])
-                    log('  completed %s: %.2f hours at %s' % (value['key'], completedEffort, resolutionDate))
+                completedEffort = value['fields']['timetracking'].get('originalEstimateSeconds', 0) / 3600
+                totalEffortCompleted += completedEffort
+                remainingSprintEffort -= completedEffort
+                actual.append([resolutionDate, remainingSprintEffort])
+                log('  completed %s: %.2f hours at %s' % (value['key'], completedEffort, resolutionDate))
 
     log('  Overall effort completed: %.2f hours' % totalEffortCompleted)
 
