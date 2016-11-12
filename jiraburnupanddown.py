@@ -90,7 +90,7 @@ class JiraRest:
         self.url = url
         self.read = readFromFile
         self.write = writeToFile
-        self.auth = None
+        self.auth = ('', '')
 
     def _get(self, resource, filename, params = None):
         if self.read:
