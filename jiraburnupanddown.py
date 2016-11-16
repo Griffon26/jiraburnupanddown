@@ -833,6 +833,7 @@ class Gui(QtCore.QObject):
     availabilityChanged = QtCore.pyqtSignal(int)
     burnupBudgetChanged = QtCore.pyqtSignal(int)
     connectionDataChanged = QtCore.pyqtSignal(str, str, str)
+    refreshButtonClicked = QtCore.pyqtSignal()
 
     def __init__(self, jiraUrl, username, password):
         super().__init__()
@@ -853,6 +854,9 @@ class Gui(QtCore.QObject):
         connectionStatusLabel = QtGui.QLabel('Connection status')
         self.connectionStatusText = QtGui.QLabel('')
         self.connectionStatusText.setWordWrap(True)
+
+        refreshButton = QtGui.QPushButton('Refresh')
+        refreshButton.clicked.connect(self._refreshButtonClicked)
 
         boardLabel = QtGui.QLabel('Scrum board')
         sprintLabel = QtGui.QLabel('Sprint')
@@ -881,17 +885,18 @@ class Gui(QtCore.QObject):
 
         gridLayout.addWidget(configConnectionButton, 0, 0, 1, 2)
         gridLayout.addWidget(connectionStatusLabel, 0, 2)
-        gridLayout.addWidget(self.connectionStatusText, 0, 3, 1, 1)
+        gridLayout.addWidget(self.connectionStatusText, 0, 3, 1, 2)
+        gridLayout.addWidget(refreshButton, 0, 5)
         
         gridLayout.addWidget(boardLabel, 1, 0)
         gridLayout.addWidget(self.boards_combobox, 1, 1)
         gridLayout.addWidget(sprintLabel, 2, 0) 
         gridLayout.addWidget(self.sprints_combobox, 2, 1)
         gridLayout.addWidget(availabilityLabel, 1, 2)
-        gridLayout.addWidget(self.availabilityEdit, 1, 3)
+        gridLayout.addWidget(self.availabilityEdit, 1, 3, 1, 3)
         gridLayout.addWidget(burnupBudgetLabel, 2, 2)
-        gridLayout.addWidget(self.burnupBudgetEdit, 2, 3)
-        gridLayout.addWidget(self.plot_widget, 3, 0, 1, 4)
+        gridLayout.addWidget(self.burnupBudgetEdit, 2, 3, 1, 3)
+        gridLayout.addWidget(self.plot_widget, 3, 0, 1, 6)
 
         self.main_window.show()
 
@@ -940,6 +945,9 @@ class Gui(QtCore.QObject):
 
     def _burnupBudgetChanged(self):
         self.burnupBudgetChanged.emit(int(self.burnupBudgetEdit.text()))
+
+    def _refreshButtonClicked(self):
+        self.refreshButtonClicked.emit()
         
     def openConnectionDialog(self):
         connectionDialog = ConnectionDialog(self.jiraUrl, self.username, self.password)
@@ -1128,11 +1136,15 @@ def main():
 
     model.selectedSprintChanged.connect(chart.updateChart)
 
+    # Create a timer for updating the chart automatically from time to time
+    timer = QtCore.QTimer()
+    timer.setSingleShot(True)
+
     def reconnect():
         try:
             model.update()
             gui.setConnectionStatus('OK')
-            QtCore.QTimer.singleShot(5 * 60 * 1000, reconnect)
+            timer.start(5 * 60 * 1000)
         except requests.exceptions.ConnectionError as e:
             gui.setConnectionStatus(str(e))
             gui.openConnectionDialog()
@@ -1142,7 +1154,7 @@ def main():
             if status_code == 401:
                 gui.openConnectionDialog()
             elif status_code == 404:
-                QtCore.QTimer.singleShot(5000, reconnect)
+                timer.start(5000)
             else:
                 raise
                 
@@ -1150,7 +1162,12 @@ def main():
         jira.setConnectionData(jiraUrl, username, password)
         reconnect()
     
+    # Use a queued connection for connectionData changed, because it is
+    # triggered by the connection dialog and can open one at the same time.
+    # This could cause endless recursion.
     gui.connectionDataChanged.connect(connect, QtCore.Qt.QueuedConnection)
+    gui.refreshButtonClicked.connect(reconnect)
+    timer.timeout.connect(reconnect)
     
     gui.openConnectionDialog()
     
