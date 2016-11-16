@@ -20,6 +20,7 @@ import datetime as dt
 from dateutil import parser
 import json
 import numpy as np
+import os.path
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui
 import pytz
@@ -31,7 +32,7 @@ jiraVersion = 6
 
 logging = False
 
-config_file = '.jira-burn-up-and-down.rc'
+config_file = os.path.expanduser('~/.jira-burn-up-and-down.rc')
 config = {}
 
 def saveConfiguration():
