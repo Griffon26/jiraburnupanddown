@@ -794,9 +794,12 @@ def updateChart(jira, plotItem, boardId, supportBoardId, sprintId, burnupBudget,
 
 class ConnectionDialog(QtGui.QDialog):
 
-    def __init__(self, jiraUrl, username, password):
+    def __init__(self, jiraUrl, username, password, message = ''):
         super().__init__()
         
+        self.messageLabel = QtGui.QLabel(message)
+        if not message:
+            self.messageLabel.hide()
         self.jiraUrlLabel = QtGui.QLabel('JIRA URL')
         self.jiraUrlEdit = QtGui.QLineEdit(jiraUrl)
         self.usernameLabel = QtGui.QLabel('User')
@@ -808,13 +811,14 @@ class ConnectionDialog(QtGui.QDialog):
         self.buttonBox.button(QtGui.QDialogButtonBox.Ok).setText('Connect')
         
         self.gridLayout = QtGui.QGridLayout(self)
-        self.gridLayout.addWidget(self.jiraUrlLabel, 0, 0)
-        self.gridLayout.addWidget(self.jiraUrlEdit, 0, 1)
-        self.gridLayout.addWidget(self.usernameLabel, 1, 0)
-        self.gridLayout.addWidget(self.usernameEdit, 1, 1)
-        self.gridLayout.addWidget(self.passwordLabel, 2, 0)
-        self.gridLayout.addWidget(self.passwordEdit, 2, 1)
-        self.gridLayout.addWidget(self.buttonBox, 3, 0, 1, 2)
+        self.gridLayout.addWidget(self.messageLabel, 0, 0, 1, 2)
+        self.gridLayout.addWidget(self.jiraUrlLabel, 1, 0)
+        self.gridLayout.addWidget(self.jiraUrlEdit, 1, 1)
+        self.gridLayout.addWidget(self.usernameLabel, 2, 0)
+        self.gridLayout.addWidget(self.usernameEdit, 2, 1)
+        self.gridLayout.addWidget(self.passwordLabel, 3, 0)
+        self.gridLayout.addWidget(self.passwordEdit, 3, 1)
+        self.gridLayout.addWidget(self.buttonBox, 4, 0, 1, 2)
         
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
@@ -852,7 +856,7 @@ class Gui(QtCore.QObject):
         self.main_window.setCentralWidget(central_widget)
 		
         configConnectionButton = QtGui.QPushButton('Configure connection...')
-        configConnectionButton.clicked.connect(self.openConnectionDialog)
+        configConnectionButton.clicked.connect(lambda: self.openConnectionDialog())
         
         connectionStatusLabel = QtGui.QLabel('Connection status')
         self.connectionStatusText = QtGui.QLabel('')
@@ -952,8 +956,8 @@ class Gui(QtCore.QObject):
     def _refreshButtonClicked(self):
         self.refreshButtonClicked.emit()
         
-    def openConnectionDialog(self):
-        connectionDialog = ConnectionDialog(self.jiraUrl, self.username, self.password)
+    def openConnectionDialog(self, message = ''):
+        connectionDialog = ConnectionDialog(self.jiraUrl, self.username, self.password, message)
         if connectionDialog.exec_() == QtGui.QDialog.Accepted:
             self.jiraUrl, self.username, self.password = connectionDialog.getConnectionData()
             self.connectionDataChanged.emit(self.jiraUrl, self.username, self.password)
@@ -1157,6 +1161,11 @@ def main():
 
             if status_code == 401: # Unauthorized
                 gui.openConnectionDialog()
+            elif status_code == 403: # Forbidden
+                header_name = 'X-Authentication-Denied-Reason'
+                header_value = e.response.headers[header_name]
+                gui.setConnectionStatus(str(e) + '\n\n%s: %s' % (header_name, header_value))
+                gui.openConnectionDialog('Please log in manually in a browser and solve the CAPTCHA before logging in here.')
             elif status_code == 404: # Not Found
                 timer.start(5000)
             else:
