@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import atexit
 import copy
 import datetime as dt
 from dateutil import parser
@@ -26,6 +27,7 @@ from pyqtgraph.Qt import QtCore, QtGui
 import pytz
 import requests
 import sys
+import time
 import tzlocal
 
 jiraVersion = 6
@@ -87,11 +89,11 @@ def timestamp_to_jqltimestamp(ts):
 
 class JiraRest:
 
-    def __init__(self, url, readFromFile = False, writeToFile = False):
+    def __init__(self, url, username, readFromFile = False, writeToFile = False):
         self.url = url
         self.read = readFromFile
         self.write = writeToFile
-        self.auth = ('', '')
+        self.auth = (username, '')
 
     def _get(self, resource, filename, params = None):
         if self.read:
@@ -115,8 +117,8 @@ class JiraRest:
 
 class Jira6(JiraRest):
 
-    def __init__(self, url, readFromFile = False, writeToFile = False):
-        super().__init__(url, readFromFile = readFromFile, writeToFile = writeToFile)
+    def __init__(self, url, username, readFromFile = False, writeToFile = False):
+        super().__init__(url, username, readFromFile = readFromFile, writeToFile = writeToFile)
 
     def setAuth(self, auth):
         self.auth = auth
@@ -219,8 +221,8 @@ class Jira6(JiraRest):
 
 class Jira7(JiraRest):
 
-    def __init__(self, url, readFromFile = False, writeToFile = False):
-        super().__init__(url, readFromFile = readFromFile, writeToFile = writeToFile)
+    def __init__(self, url, username, readFromFile = False, writeToFile = False):
+        super().__init__(url, username, readFromFile = readFromFile, writeToFile = writeToFile)
 
     def setAuth(self, auth):
         self.auth = auth
@@ -1119,7 +1121,7 @@ def main():
     # connect to localhost:8080.
 
     jiraClass = Jira6 if jiraVersion == 6 else Jira7
-    jira = jiraClass(config['jiraurl'], readFromFile = False, writeToFile = False)
+    jira = jiraClass(config['jiraurl'], config['username'], readFromFile = False, writeToFile = False)
 
     hoursManager = HoursManager(config['hours'])
     model = Model(jira, hoursManager, config['currentBoard'], config['currentSprint'])
@@ -1152,9 +1154,10 @@ def main():
         except requests.exceptions.HTTPError as e:
             gui.setConnectionStatus(str(e))
             status_code = e.response.status_code
-            if status_code == 401:
+
+            if status_code == 401: # Unauthorized
                 gui.openConnectionDialog()
-            elif status_code == 404:
+            elif status_code == 404: # Not Found
                 timer.start(5000)
             else:
                 raise
@@ -1183,5 +1186,12 @@ def main():
 
     saveConfiguration()
 
+def delay_exit_after_exception():
+    time.sleep(5)
+    
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception:
+        atexit.register(delay_exit_after_exception)
+        raise
