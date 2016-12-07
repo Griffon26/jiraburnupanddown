@@ -49,7 +49,7 @@ def loadConfiguration():
     try:
         with open(config_file, 'rt') as f:
             config = json.load(f)
-    except FileNotFoundError:
+    except (ValueError, FileNotFoundError):
         config = {}
 
     if 'hours' not in config:
