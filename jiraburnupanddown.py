@@ -870,6 +870,19 @@ class Gui(QtCore.QObject):
         availabilityLabel = QtGui.QLabel('Availability (hours)')
         burnupBudgetLabel = QtGui.QLabel('Burnup budget (hours)')
 
+        url = 'http://github.com/Griffon26/jiraburnupanddown'
+        urlLabel = QtGui.QLabel('''
+            <style>
+                * {
+                    color: #666666;
+                    text-align: center;
+                }
+            </style>
+            <font size=6>Jira burn-up-and-down</font><br>
+            <a href='%s'>%s</a>''' % (url, url))
+        urlLabel.setOpenExternalLinks(True)
+        urlLabel.setMargin(10)
+
         self.boards_combobox = QtGui.QComboBox()
         self.boards_combobox.activated.connect(self._boardSelectionChanged)
         self.boards_combobox.setSizeAdjustPolicy(QtGui.QComboBox.AdjustToContents)
@@ -904,6 +917,7 @@ class Gui(QtCore.QObject):
         gridLayout.addWidget(burnupBudgetLabel, 2, 2)
         gridLayout.addWidget(self.burnupBudgetEdit, 2, 3, 1, 3)
         gridLayout.addWidget(self.plot_widget, 3, 0, 1, 6)
+        gridLayout.addWidget(urlLabel, 3, 5, QtCore.Qt.AlignTop | QtCore.Qt.AlignRight)
 
         self.main_window.show()
 
