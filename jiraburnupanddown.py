@@ -22,6 +22,7 @@ from dateutil import parser
 import json
 import numpy as np
 import os.path
+import PyQt5 # import PyQt5 explicitly before pyqtgraph to stop it from using PyQt4
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui
 import pytz
@@ -870,19 +871,6 @@ class Gui(QtCore.QObject):
         availabilityLabel = QtGui.QLabel('Availability (hours)')
         burnupBudgetLabel = QtGui.QLabel('Burnup budget (hours)')
 
-        url = 'http://github.com/Griffon26/jiraburnupanddown'
-        urlLabel = QtGui.QLabel('''
-            <style>
-                * {
-                    color: #666666;
-                    text-align: center;
-                }
-            </style>
-            <font size=6>Jira burn-up-and-down</font><br>
-            <a href='%s'>%s</a>''' % (url, url))
-        urlLabel.setOpenExternalLinks(True)
-        urlLabel.setMargin(10)
-
         self.boards_combobox = QtGui.QComboBox()
         self.boards_combobox.activated.connect(self._boardSelectionChanged)
         self.boards_combobox.setSizeAdjustPolicy(QtGui.QComboBox.AdjustToContents)
@@ -900,6 +888,8 @@ class Gui(QtCore.QObject):
         self.burnupBudgetEdit.setValidator(QtGui.QIntValidator())
         self.burnupBudgetEdit.editingFinished.connect(self._burnupBudgetChanged)
 
+        graphFrame = self._createGraphFrame()
+
         gridLayout = QtGui.QGridLayout()
         central_widget.setLayout(gridLayout)
 
@@ -916,10 +906,88 @@ class Gui(QtCore.QObject):
         gridLayout.addWidget(self.availabilityEdit, 1, 3, 1, 3)
         gridLayout.addWidget(burnupBudgetLabel, 2, 2)
         gridLayout.addWidget(self.burnupBudgetEdit, 2, 3, 1, 3)
-        gridLayout.addWidget(self.plot_widget, 3, 0, 1, 6)
-        gridLayout.addWidget(urlLabel, 3, 5, QtCore.Qt.AlignTop | QtCore.Qt.AlignRight)
+        gridLayout.addWidget(graphFrame, 3, 0, 1, 6)
 
         self.main_window.show()
+
+    def _createGraphFrame(self):
+        graphFrame = QtGui.QFrame()
+
+        url = 'http://github.com/Griffon26/jiraburnupanddown'
+        urlLabel = QtGui.QLabel('''
+            <style>
+                * {
+                    color: #666666;
+                    text-align: center;
+                }
+            </style>
+            <font size=6>Jira burn-up-and-down</font><br>
+            <a href='%s'>%s</a>''' % (url, url))
+        urlLabel.setOpenExternalLinks(True)
+
+        saveas_btn = QtGui.QPushButton()
+        copy_btn = QtGui.QPushButton()
+
+        nonGraphWidgets = [saveas_btn, copy_btn]
+
+        def getGraphPixmap():
+            for w in nonGraphWidgets:
+                w.hide()
+
+            pixmap = graphFrame.grab()
+
+            for w in nonGraphWidgets:
+                w.show()
+
+            return pixmap
+
+        def save_graph_as():
+            formats = ('*.%s' % bytes(fmt).decode('latin-1') for fmt in QtGui.QImageWriter.supportedImageFormats())
+            filename, _ = QtGui.QFileDialog.getSaveFileName(None, 'Save File', '', 'Images (%s)' % ' '.join(formats))
+            if filename:
+                pixmap = getGraphPixmap()
+                pixmap.save(filename)
+
+        saveas_btn.setIcon(QtGui.QIcon('icons/document-save-as.png'))
+        saveas_btn.setToolTip('Save graph to disk')
+        saveas_btn.clicked.connect(save_graph_as)
+
+        def copy_graph_to_clipboard():
+            pixmap = getGraphPixmap()
+            QtGui.QApplication.clipboard().setPixmap(pixmap)
+
+        copy_btn.setIcon(QtGui.QIcon('icons/edit-copy.png'))
+        copy_btn.setToolTip('Copy graph to clipboard')
+        copy_btn.clicked.connect(copy_graph_to_clipboard)
+
+        innerHbox = QtGui.QBoxLayout(QtGui.QBoxLayout.LeftToRight)
+        innerHbox.addStretch(1)
+        innerHbox.addWidget(saveas_btn)
+        innerHbox.addWidget(copy_btn)
+
+        vbox = QtGui.QBoxLayout(QtGui.QBoxLayout.TopToBottom)
+        vbox.setContentsMargins(10, 10, 10, 10)
+        vbox.setSpacing(10)
+        vbox.addWidget(urlLabel)
+        vbox.addLayout(innerHbox)
+        vbox.addStretch(1)
+
+        outerHbox = QtGui.QBoxLayout(QtGui.QBoxLayout.LeftToRight)
+        outerHbox.addStretch(1)
+        outerHbox.addLayout(vbox)
+
+        graphGridLayout = QtGui.QGridLayout()
+        graphGridLayout.setContentsMargins(0, 0, 0, 0)
+        graphGridLayout.addWidget(self.plot_widget, 0, 0)
+        graphGridLayout.addLayout(outerHbox, 0, 0)
+        graphFrame.setLayout(graphGridLayout)
+
+        for w in nonGraphWidgets:
+            pol = w.sizePolicy()
+            pol.setRetainSizeWhenHidden(True)
+            w.setSizePolicy(pol)
+
+        return graphFrame
 
     def getPlotWidget(self):
         return self.plot_widget

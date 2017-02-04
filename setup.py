@@ -16,6 +16,11 @@ setup(name='jiraburnupanddown',
               'jiraburnupanddown = jiraburnupanddown:main',
           ]
       },
+      data_files=[
+          ('icons', ['icons/document-save-as.png',
+                     'icons/edit-copy.png',
+                     'icons/README.md'])
+      ],
       install_requires=[
           'numpy',
           'PyQt5',
