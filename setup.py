@@ -1,26 +1,28 @@
 from setuptools import setup
 
 setup(name='jiraburnupanddown',
-      version='0.1',
+      version='0.2',
       description='A Scrum burndown chart for Jira that also keeps track of hours spent on a separate fixed-size budget',
       url='https://github.com/Griffon26/jiraburnupanddown',
       author='Maurice van der Pot',
       author_email='griffon26@kfk4ever.com',
       license='GPLv3+',
-      py_modules=['jiraburnupanddown', 'fakejira'],
       entry_points={
           'console_scripts': [
-              'fakejira = fakejira:main',
+              'fakejira = jiraburnupanddown.fakejira:main',
           ],
           'gui_scripts': [
-              'jiraburnupanddown = jiraburnupanddown:main',
+              'jiraburnupanddown = jiraburnupanddown.jiraburnupanddown:main',
           ]
       },
-      data_files=[
-          ('icons', ['icons/document-save-as.png',
-                     'icons/edit-copy.png',
-                     'icons/README.md'])
-      ],
+      packages = [ 'jiraburnupanddown' ],
+      package_dir = {
+          'jiraburnupanddown' : 'src'
+      },
+      package_data = {
+          'jiraburnupanddown' : ['icons/document-save-as.png',
+                                 'icons/edit-copy.png']
+      },
       install_requires=[
           'numpy',
           'PyQt5',

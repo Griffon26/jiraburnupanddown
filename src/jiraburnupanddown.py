@@ -22,6 +22,7 @@ from dateutil import parser
 import json
 import numpy as np
 import os.path
+import pkg_resources
 import PyQt5 # import PyQt5 explicitly before pyqtgraph to stop it from using PyQt4
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui
@@ -948,7 +949,9 @@ class Gui(QtCore.QObject):
                 pixmap = getGraphPixmap()
                 pixmap.save(filename)
 
-        saveas_btn.setIcon(QtGui.QIcon('icons/document-save-as.png'))
+        iconsDir = pkg_resources.resource_filename(__name__, 'icons')
+
+        saveas_btn.setIcon(QtGui.QIcon('%s/document-save-as.png' % iconsDir))
         saveas_btn.setToolTip('Save graph to disk')
         saveas_btn.clicked.connect(save_graph_as)
 
@@ -956,7 +959,7 @@ class Gui(QtCore.QObject):
             pixmap = getGraphPixmap()
             QtGui.QApplication.clipboard().setPixmap(pixmap)
 
-        copy_btn.setIcon(QtGui.QIcon('icons/edit-copy.png'))
+        copy_btn.setIcon(QtGui.QIcon('%s/edit-copy.png' % iconsDir))
         copy_btn.setToolTip('Copy graph to clipboard')
         copy_btn.clicked.connect(copy_graph_to_clipboard)
 
