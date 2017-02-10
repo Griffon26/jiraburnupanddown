@@ -823,6 +823,8 @@ class ConnectionDialog(QtGui.QDialog):
         self.passwordEdit = QtGui.QLineEdit(password)
         self.passwordEdit.setEchoMode(QtGui.QLineEdit.Password)
         self.burnupIssueQueryLabel = QtGui.QLabel('Burnup issue\nquery (JQL)')
+        self.burnupIssueQueryLabel.setToolTip('<span>Work logged during the sprint on issues returned '
+                                              'by this query will be plotted in the burnup</span>')
 
         # Create a new MyPlainTextEdit class specifically to override the sizeHint:
         # - three times the height of a QTextEdit to create some space for a JQL query
