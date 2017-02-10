@@ -70,6 +70,9 @@ def loadConfiguration():
     if 'currentSprint' not in config:
         config['currentSprint'] = None
 
+    if 'burnupIssueQuery' not in config:
+        config['burnupIssueQuery'] = ''
+
 def log(msg):
     print(msg)
 
@@ -91,11 +94,12 @@ def timestamp_to_jqltimestamp(ts):
 
 class JiraRest:
 
-    def __init__(self, url, username, readFromFile = False, writeToFile = False):
+    def __init__(self, url, username, burnupIssueQuery, readFromFile = False, writeToFile = False):
         self.url = url
         self.read = readFromFile
         self.write = writeToFile
         self.auth = (username, '')
+        self.burnupIssueQuery = burnupIssueQuery
 
     def _get(self, resource, filename, params = None):
         if self.read:
@@ -113,14 +117,15 @@ class JiraRest:
 
         return jsonData
         
-    def setConnectionData(self, url, username, password):
+    def setConnectionData(self, url, username, password, burnupIssueQuery):
         self.url = url
         self.auth = (username, password)
+        self.burnupIssueQuery = burnupIssueQuery
 
 class Jira6(JiraRest):
 
-    def __init__(self, url, username, readFromFile = False, writeToFile = False):
-        super().__init__(url, username, readFromFile = readFromFile, writeToFile = writeToFile)
+    def __init__(self, url, username, burnupIssueQuery, readFromFile = False, writeToFile = False):
+        super().__init__(url, username, burnupIssueQuery, readFromFile = readFromFile, writeToFile = writeToFile)
 
     def setAuth(self, auth):
         self.auth = auth
@@ -210,12 +215,14 @@ class Jira6(JiraRest):
 
         return jsonData
 
-    def getIssueWorklogs(self, boardId, sprintStart, sprintEnd):
+    def getIssueWorklogs(self, sprintStart, sprintEnd):
         jsonData = self._get('rest/api/2/search', 'jira6/getIssueWorklogs.json', params = {
                 'startAt' : 0,
                 'maxResults' : 1000,
                 'jql' : '(resolved >= %s or resolution = unresolved) and ' % timestamp_to_jqltimestamp(sprintStart) + \
-                        '(created <= %s) and (updated >= %s) and (issuetype = Support)' % (timestamp_to_jqltimestamp(sprintEnd), timestamp_to_jqltimestamp(sprintStart)),
+                        '(created <= %s) and (updated >= %s) and (%s)' % (timestamp_to_jqltimestamp(sprintEnd),
+                                                                          timestamp_to_jqltimestamp(sprintStart),
+                                                                          'true' if not self.burnupIssueQuery else self.burnupIssueQuery),
                 'fields' : 'worklog'
             })
 
@@ -223,8 +230,8 @@ class Jira6(JiraRest):
 
 class Jira7(JiraRest):
 
-    def __init__(self, url, username, readFromFile = False, writeToFile = False):
-        super().__init__(url, username, readFromFile = readFromFile, writeToFile = writeToFile)
+    def __init__(self, url, username, burnupIssueQuery, readFromFile = False, writeToFile = False):
+        super().__init__(url, username, burnupIssueQuery, readFromFile = readFromFile, writeToFile = writeToFile)
 
     def setAuth(self, auth):
         self.auth = auth
@@ -697,7 +704,7 @@ def annotatePointsBehind(plotItem, currentTimestamp, currentIdealBurndownValue, 
     if points >= 2:
         drawVerticalAnnotatedArrow(plotItem, x, currentIdealBurndownValue, currentActualBurndownValue, '%d pts' % points, 1)
 
-def updateChart(jira, plotItem, boardId, supportBoardId, sprintId, burnupBudget, availability):
+def updateChart(jira, plotItem, boardId, sprintId, burnupBudget, availability):
     #
     # Gather all data
     #
@@ -738,7 +745,7 @@ def updateChart(jira, plotItem, boardId, supportBoardId, sprintId, burnupBudget,
     except ZeroDivisionError:
         pointsPerHour = 0
 
-    issueWorklogs = jira.getIssueWorklogs(supportBoardId, sprintStart, sprintEnd)
+    issueWorklogs = jira.getIssueWorklogs(sprintStart, sprintEnd)
     actualBurnupData = calculateActualBurnup(sprintStart, sprintEnd, currentTime, issueWorklogs, burnupBudget, pointsPerHour)
 
     idealBurnupData = calculateIdealBurnup(sprintStart, sprintEnd, burnupBudget * pointsPerHour)
@@ -796,9 +803,11 @@ def updateChart(jira, plotItem, boardId, supportBoardId, sprintId, burnupBudget,
 
 class ConnectionDialog(QtGui.QDialog):
 
-    def __init__(self, jiraUrl, username, password, message = ''):
+    def __init__(self, jiraUrl, username, password, burnupIssueQuery, message = ''):
         super().__init__()
         
+        self.setWindowTitle('Configure JIRA connection')
+
         self.messageLabel = QtGui.QLabel(message)
         if not message:
             self.messageLabel.hide()
@@ -809,6 +818,27 @@ class ConnectionDialog(QtGui.QDialog):
         self.passwordLabel = QtGui.QLabel('Password')
         self.passwordEdit = QtGui.QLineEdit(password)
         self.passwordEdit.setEchoMode(QtGui.QLineEdit.Password)
+        self.burnupIssueQueryLabel = QtGui.QLabel('Burnup issue\nquery (JQL)')
+
+        # Create a new MyPlainTextEdit class specifically to override the sizeHint:
+        # - three times the height of a QTextEdit to create some space for a JQL query
+        # - twice the width of the QTextEdit to create some space for URLs
+        # Changing the width of this control to create room for another control
+        # is a bit of a hack, but I don't feel like subclassing two controls
+        # just to fix it properly.
+        size = self.jiraUrlEdit.sizeHint()
+        size.setHeight(size.height() * 3)
+        size.setWidth(size.width() * 2)
+
+        class MyPlainTextEdit(QtGui.QPlainTextEdit):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+
+            def sizeHint(self):
+                return size
+
+        self.burnupIssueQueryEdit = MyPlainTextEdit(burnupIssueQuery)
+        self.queryExampleLabel = QtGui.QLabel('e.g. issuetype = Task')
         self.buttonBox = QtGui.QDialogButtonBox(QtGui.QDialogButtonBox.Ok | QtGui.QDialogButtonBox.Cancel)
         self.buttonBox.button(QtGui.QDialogButtonBox.Ok).setText('Connect')
         
@@ -820,13 +850,16 @@ class ConnectionDialog(QtGui.QDialog):
         self.gridLayout.addWidget(self.usernameEdit, 2, 1)
         self.gridLayout.addWidget(self.passwordLabel, 3, 0)
         self.gridLayout.addWidget(self.passwordEdit, 3, 1)
-        self.gridLayout.addWidget(self.buttonBox, 4, 0, 1, 2)
+        self.gridLayout.addWidget(self.burnupIssueQueryLabel, 4, 0)
+        self.gridLayout.addWidget(self.burnupIssueQueryEdit, 4, 1)
+        self.gridLayout.addWidget(self.queryExampleLabel, 5, 1)
+        self.gridLayout.addWidget(self.buttonBox, 6, 0, 1, 2)
         
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
         
     def getConnectionData(self):
-        return (self.jiraUrlEdit.text(), self.usernameEdit.text(), self.passwordEdit.text())
+        return (self.jiraUrlEdit.text(), self.usernameEdit.text(), self.passwordEdit.text(), self.burnupIssueQueryEdit.toPlainText())
     
 class Gui(QtCore.QObject):
     ''' The Gui class is responsible for constructing all widgets and emitting
@@ -841,15 +874,16 @@ class Gui(QtCore.QObject):
     sprintChanged = QtCore.pyqtSignal(int)
     availabilityChanged = QtCore.pyqtSignal(int)
     burnupBudgetChanged = QtCore.pyqtSignal(int)
-    connectionDataChanged = QtCore.pyqtSignal(str, str, str)
+    connectionDataChanged = QtCore.pyqtSignal(str, str, str, str)
     refreshButtonClicked = QtCore.pyqtSignal()
 
-    def __init__(self, jiraUrl, username, password):
+    def __init__(self, jiraUrl, username, password, burnupIssueQuery):
         super().__init__()
         
         self.jiraUrl = jiraUrl
         self.username = username
         self.password = password
+        self.burnupIssueQuery = burnupIssueQuery
 
         self.main_window = QtGui.QMainWindow()
         self.main_window.setWindowTitle('JIRA burn-up-and-down')
@@ -1042,10 +1076,10 @@ class Gui(QtCore.QObject):
         self.refreshButtonClicked.emit()
         
     def openConnectionDialog(self, message = ''):
-        connectionDialog = ConnectionDialog(self.jiraUrl, self.username, self.password, message)
+        connectionDialog = ConnectionDialog(self.jiraUrl, self.username, self.password, self.burnupIssueQuery, message)
         if connectionDialog.exec_() == QtGui.QDialog.Accepted:
-            self.jiraUrl, self.username, self.password = connectionDialog.getConnectionData()
-            self.connectionDataChanged.emit(self.jiraUrl, self.username, self.password)
+            self.jiraUrl, self.username, self.password, self.burnupIssueQuery = connectionDialog.getConnectionData()
+            self.connectionDataChanged.emit(self.jiraUrl, self.username, self.password, self.burnupIssueQuery)
             
 class Chart():
     ''' Chart draws a burndown chart on a plotItem given a boardId, sprintId,
@@ -1076,13 +1110,10 @@ class Chart():
         self.burnupBudget = burnupBudget
         self._updateChartIfPossible()
 
-    def setSupportBoard(self, supportBoardId):
-        pass
-
     def _updateChartIfPossible(self):
         if (self.boardId != None and
             self.sprintId != None):
-            updateChart(self.jira, self.plotItem, self.boardId, None, self.sprintId, self.burnupBudget, self.availability)
+            updateChart(self.jira, self.plotItem, self.boardId, self.sprintId, self.burnupBudget, self.availability)
 
 class HoursManager():
     ''' HoursManager maintains the availability and burnupBudget associated
@@ -1210,11 +1241,11 @@ def main():
     # connect to localhost:8080.
 
     jiraClass = Jira6 if jiraVersion == 6 else Jira7
-    jira = jiraClass(config['jiraurl'], config['username'], readFromFile = False, writeToFile = False)
+    jira = jiraClass(config['jiraurl'], config['username'], config['burnupIssueQuery'], readFromFile = False, writeToFile = False)
 
     hoursManager = HoursManager(config['hours'])
     model = Model(jira, hoursManager, config['currentBoard'], config['currentSprint'])
-    gui = Gui(config['jiraurl'], config['username'], '')
+    gui = Gui(config['jiraurl'], config['username'], '', config['burnupIssueQuery'])
     chart = Chart(jira, gui.getPlotWidget().getPlotItem())
 
     gui.boardChanged.connect(model.setBoard)
@@ -1256,8 +1287,8 @@ def main():
             else:
                 raise
                 
-    def connect(jiraUrl, username, password):
-        jira.setConnectionData(jiraUrl, username, password)
+    def connect(jiraUrl, username, password, burnupIssueQuery):
+        jira.setConnectionData(jiraUrl, username, password, burnupIssueQuery)
         reconnect()
     
     # Use a queued connection for connectionData changed, because it is
@@ -1274,6 +1305,7 @@ def main():
 
     config['jiraurl'] = jira.url
     config['username'] = jira.auth[0]
+    config['burnupIssueQuery'] = jira.burnupIssueQuery
     config['hours'] = hoursManager.hours
     config['currentBoard'] = model.currentBoard
     config['currentSprint'] = model.currentSprint

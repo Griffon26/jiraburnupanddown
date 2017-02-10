@@ -38,7 +38,7 @@ class JiraRequestHandler(SimpleHTTPRequestHandler):
             (r'rest/api/2/search', { 'jql' : r'issuetype = Sub-task .*' }, 'getIssues.json'),
             (r'rest/api/2/search', { 'jql' : r'issuekey in .*' }, 'getEffortForIssues.json'),
             (r'rest/greenhopper/1.0/rapid/charts/scopechangeburndownchart', {}, 'getScopeChangeBurndownChart.json'),
-            (r'rest/api/2/search', { 'jql' : r'.*(issuetype = Support).*' }, 'getIssueWorklogs.json')
+            (r'rest/api/2/search', { 'jql' : r'.*resolved >= .* or resolution = unresolved.*' }, 'getIssueWorklogs.json')
         ]
 
         for resource, query, datafile in resources:
