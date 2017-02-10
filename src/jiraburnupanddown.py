@@ -216,13 +216,17 @@ class Jira6(JiraRest):
         return jsonData
 
     def getIssueWorklogs(self, sprintStart, sprintEnd):
+        queryParts = [ '(resolved >= %s or resolution = unresolved)' % timestamp_to_jqltimestamp(sprintStart),
+                       '(created <= %s)' % timestamp_to_jqltimestamp(sprintEnd),
+                       '(updated >= %s)' % timestamp_to_jqltimestamp(sprintStart) ]
+                       
+        if self.burnupIssueQuery:
+            queryParts.append(self.burnupIssueQuery)
+    
         jsonData = self._get('rest/api/2/search', 'jira6/getIssueWorklogs.json', params = {
                 'startAt' : 0,
                 'maxResults' : 1000,
-                'jql' : '(resolved >= %s or resolution = unresolved) and ' % timestamp_to_jqltimestamp(sprintStart) + \
-                        '(created <= %s) and (updated >= %s) and (%s)' % (timestamp_to_jqltimestamp(sprintEnd),
-                                                                          timestamp_to_jqltimestamp(sprintStart),
-                                                                          'true' if not self.burnupIssueQuery else self.burnupIssueQuery),
+                'jql' : ' and '.join(queryParts),
                 'fields' : 'worklog'
             })
 
@@ -1275,6 +1279,15 @@ def main():
             gui.setConnectionStatus(str(e))
             status_code = e.response.status_code
 
+            # This code is disabled because the Bad Request does not arrive here.
+            # Instead of the other errors that are the result of failed requests performed by the model,
+            # the Bad Request comes from a request done by updateChart, which is used as a slot.
+            # This exception is not propagated to the code that triggers the signal, moreover
+            # not handling exceptions in a slot results in undefined behaviour according to the
+            # PyQt documentation. Probably all requests for data should move to the model.
+            #
+            #if status_code == 400: # Bad Request
+            #    gui.openConnectionDialog('The server reported a bad request. Please check your burnup issue query for invalid JQL.')
             if status_code == 401: # Unauthorized
                 gui.openConnectionDialog()
             elif status_code == 403: # Forbidden
